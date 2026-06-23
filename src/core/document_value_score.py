@@ -144,7 +144,7 @@ def write_document_value_score_report(rows: list[DocumentValueScore]) -> str:
         lines.append(f"path: {row.display_name}")
         lines.append("")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

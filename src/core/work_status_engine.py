@@ -200,7 +200,7 @@ def write_work_status_report(statuses: list[WorkStatus], output_dir: str | None 
         _append_bullets(lines, status.risks)
         lines.append("")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

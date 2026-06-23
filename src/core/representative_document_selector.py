@@ -186,7 +186,7 @@ def write_representative_documents_report(
         _append_group(lines, "참고문서", result.reference_docs)
         lines.append("")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

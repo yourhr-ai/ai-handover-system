@@ -80,7 +80,7 @@ def write_action_plan_report(project_plans: dict[str, ActionPlan], output_dir: s
         _append_bullets(lines, plan.first_week_actions)
         lines.append("")
 
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8", newline="\n")
     return str(path)
 
 

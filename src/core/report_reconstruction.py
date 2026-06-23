@@ -126,7 +126,7 @@ def write_report_reconstruction_report(
     _append_list(lines, result.suppressed_containers)
     lines.extend(["", "Fallback Used", str(result.fallback_used)])
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

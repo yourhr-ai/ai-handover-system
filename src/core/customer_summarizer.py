@@ -384,7 +384,7 @@ def _save_final_eval_input(
         eval_text,
     ]
 
-    path.write_text("\n".join(header_lines), encoding="utf-8")
+    path.write_text("\n".join(header_lines), encoding="utf-8", newline="\n")
     print(f"[로그] output/final_eval_input.txt 저장 완료  ({total_chars:,}자)")
 
 

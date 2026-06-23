@@ -93,7 +93,7 @@ def write_document_families_report(
             lines.append(_file_name(doc.display_name))
         lines.append("")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

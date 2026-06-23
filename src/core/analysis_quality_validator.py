@@ -310,7 +310,7 @@ def write_analysis_quality_report(report: AnalysisQualityReport, output_dir: str
     else:
         lines.append("* (none)")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

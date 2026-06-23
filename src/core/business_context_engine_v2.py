@@ -211,7 +211,7 @@ def write_business_context_v2_report(
         _append_plain(lines, context.evidence_files)
         lines.extend(["", "Confidence", str(context.confidence), ""])
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

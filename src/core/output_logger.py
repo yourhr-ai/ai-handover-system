@@ -321,7 +321,7 @@ class OutputLogger:
         ]
 
         (_OUTPUT_DIR / "project_summaries.txt").write_text(
-            "\n".join(lines), encoding="utf-8"
+            "\n".join(lines), encoding="utf-8", newline="\n"
         )
         print("[로그] output/project_summaries.txt 저장 완료")
 
@@ -367,7 +367,7 @@ class OutputLogger:
             f"문자 절감률      : {reduction:>8.1f}%",
         ]
         (_OUTPUT_DIR / "document_summaries.txt").write_text(
-            "\n".join(lines), encoding="utf-8"
+            "\n".join(lines), encoding="utf-8", newline="\n"
         )
         print("[로그] output/document_summaries.txt 저장 완료")
 
@@ -417,7 +417,7 @@ class OutputLogger:
             f"총 중요 정보 수 : {total_critical:>6,}개",
         ]
 
-        log_path.write_text("\n".join(lines), encoding="utf-8")
+        log_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
         print(f"[로그] output/customer_summaries.txt 저장 완료  ({len(customer_summaries)}개 고객사)")
 
     def _write_extracted(self, ts: str) -> None:
@@ -434,21 +434,21 @@ class OutputLogger:
             "",
             f"총 {len(self._extracted)}개  |  원문 {orig_total:,}자  →  샘플 {samp_total:,}자",
         ]
-        (_OUTPUT_DIR / "extracted_files.txt").write_text("\n".join(lines), encoding="utf-8")
+        (_OUTPUT_DIR / "extracted_files.txt").write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
     def _write_excluded(self, ts: str) -> None:
         lines = [f"[제외 파일 목록]  {ts}", "=" * 60, ""]
         for r in self._excluded:
             lines.append(f"{r.reason}  {r.display_name}")
         lines += ["", f"총 {len(self._excluded)}개 파일 제외"]
-        (_OUTPUT_DIR / "excluded_files.txt").write_text("\n".join(lines), encoding="utf-8")
+        (_OUTPUT_DIR / "excluded_files.txt").write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
     def _write_errors(self, ts: str) -> None:
         lines = [f"[추출 오류 파일]  {ts}", "=" * 60, ""]
         for r in self._errors:
             lines += [f"  파일명: {r.display_name}", f"  오류  : {r.error}", ""]
         lines.append(f"총 {len(self._errors)}개 파일 오류")
-        (_OUTPUT_DIR / "extraction_errors.txt").write_text("\n".join(lines), encoding="utf-8")
+        (_OUTPUT_DIR / "extraction_errors.txt").write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
     def _write_summary(self, ts: str) -> None:
         s = self.get_summary_dict()
@@ -544,4 +544,4 @@ class OutputLogger:
                     f"수정:{doc.modified_dt}  {doc.display_name}"
                 )
 
-        (_OUTPUT_DIR / "analysis_summary.txt").write_text("\n".join(lines), encoding="utf-8")
+        (_OUTPUT_DIR / "analysis_summary.txt").write_text("\n".join(lines), encoding="utf-8", newline="\n")

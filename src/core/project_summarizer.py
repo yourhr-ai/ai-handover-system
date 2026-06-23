@@ -544,7 +544,7 @@ def _save_project_summary_quality(project_summaries: list[ProjectSummary]) -> No
         lines.append(f"참고문서 {ratio[2]}%")
         lines.append("")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(f"[프로젝트요약] output/project_summary_quality.txt 저장 완료 ({len(project_summaries)}개 프로젝트)")
 
 

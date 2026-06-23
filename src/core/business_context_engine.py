@@ -166,7 +166,7 @@ def write_business_context_report(
         _append_bullets(lines, context.risks)
         lines.extend(["", "Confidence:", str(context.confidence), ""])
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

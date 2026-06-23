@@ -215,7 +215,7 @@ def write_work_clusters_report(
             lines.append(f"* {_file_name(doc.display_name)}")
         lines.append("")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 
@@ -256,7 +256,7 @@ def write_work_unit_detection_report(
     for cluster in detection.work_clusters:
         lines.append(f"* {cluster.cluster_key} [{cluster.category}]: {len(cluster.documents)} docs")
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

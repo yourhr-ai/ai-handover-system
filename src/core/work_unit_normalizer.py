@@ -163,7 +163,7 @@ def write_work_unit_normalizer_report(
         lines.extend(["", "Warnings"])
         _append_lines(lines, result.warnings)
 
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return str(path)
 
 

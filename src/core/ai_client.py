@@ -35,7 +35,7 @@ def _save_debug(messages: list[dict]) -> None:
             lines.append(content)
             lines.append("")
         lines.append("=" * 60)
-        _DEBUG_PATH.write_text("\n".join(lines), encoding="utf-8")
+        _DEBUG_PATH.write_text("\n".join(lines), encoding="utf-8", newline="\n")
         print(f"[디버그] 프롬프트 저장 완료: {_DEBUG_PATH}")
     except Exception as exc:
         print(f"[디버그] 저장 실패: {exc}")
@@ -61,7 +61,7 @@ def _save_final_report_input(messages: list[dict]) -> None:
             lines.append("=" * 60)
             lines.append(content)
             lines.append("")
-        _INPUT_PATH.write_text("\n".join(lines), encoding="utf-8")
+        _INPUT_PATH.write_text("\n".join(lines), encoding="utf-8", newline="\n")
         print(f"[GPT 입력] output/final_report_input.txt 저장  ({total_chars:,}자)")
     except Exception as exc:
         print(f"[경고] final_report_input.txt 저장 실패: {exc}")
@@ -77,7 +77,7 @@ def _save_final_report_output(result_md: str) -> None:
             f"# 저장 시각: {timestamp}\n"
             f"# 응답 글자 수: {len(result_md):,}자\n\n"
         )
-        _OUTPUT_PATH.write_text(header + result_md, encoding="utf-8")
+        _OUTPUT_PATH.write_text(header + result_md, encoding="utf-8", newline="\n")
         print(f"[GPT 응답] output/final_report_output.txt 저장  ({len(result_md):,}자)")
     except Exception as exc:
         print(f"[경고] final_report_output.txt 저장 실패: {exc}")
