@@ -22,6 +22,7 @@ Step 10.  AI 업무복원 분석 (고객사 요약 기반)
 import threading
 import time
 import traceback
+import re
 from datetime import datetime
 from pathlib import Path
 
