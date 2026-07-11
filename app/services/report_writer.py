@@ -1,5 +1,6 @@
 import json
 import re
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
@@ -167,14 +168,12 @@ def collect_key_contacts(
 ) -> list[dict]:
     """Return the ten most relevant contacts across email and messenger data.
 
-    본인 제외 로직 없음 — 발신자/수신자 전체를 있는 그대로 집계하므로, 사용자
-    본인 주소도 표에 포함될 수 있음. Email senders and recipients are each
-    counted as they appear, with no attempt to guess which address belongs to
-    the current user. Messenger exports still exclude explicit self labels
-    (e.g. "나", "본인") since that identification is unambiguous, but no
-    inference is made beyond that. Business keywords affect ranking, but not
-    the period counts. Group chats are never filtered out; every individual
-    sender in a group contributes separately.
+    발신자/수신자 전체를 있는 그대로 집계하며, 추정된 본인 주소도 순위와
+    상위 10명 제한에 동일하게 포함한다. 본인 추정 결과는 표시에만 사용한다.
+    Messenger exports still exclude explicit self labels (e.g. "나", "본인")
+    since that identification is unambiguous. Business keywords affect ranking,
+    but not the period counts. Group chats are never filtered out; every
+    individual sender in a group contributes separately.
     """
     now = datetime.now(timezone.utc)
     email_rows: list[tuple[list[tuple[str, str]], list[tuple[str, str]], datetime | None, str]] = []
@@ -191,6 +190,7 @@ def collect_key_contacts(
             )
         )
 
+    self_contact_guess = _guess_self_contact(email_rows)
     stats: dict[str, dict] = {}
 
     for senders, recipients, occurred_at, text in email_rows:
@@ -223,6 +223,11 @@ def collect_key_contacts(
         ),
         reverse=True,
     )
+    for item in ranked:
+        item["is_self_guess"] = (
+            self_contact_guess is not None
+            and item["contact"].casefold() == self_contact_guess
+        )
     return ranked[:10]
 
 
@@ -233,6 +238,35 @@ def _parse_email_contacts(value: str) -> list[tuple[str, str]]:
         if address:
             contacts.append((name.strip(), address))
     return contacts
+
+
+def _guess_self_contact(
+    email_rows: list[
+        tuple[list[tuple[str, str]], list[tuple[str, str]], datetime | None, str]
+    ],
+) -> str | None:
+    sender_counts: Counter[str] = Counter()
+    recipient_counts: Counter[str] = Counter()
+    for senders, recipients, _, _ in email_rows:
+        sender_counts.update(address.casefold() for _, address in senders)
+        recipient_counts.update(address.casefold() for _, address in recipients)
+
+    candidates = sender_counts.keys() & recipient_counts.keys()
+    if not candidates:
+        return None
+
+    scores = {
+        address: (
+            min(sender_counts[address], recipient_counts[address]),
+            sender_counts[address] + recipient_counts[address],
+        )
+        for address in candidates
+    }
+    best_score = max(scores.values())
+    best_candidates = [
+        address for address, score in scores.items() if score == best_score
+    ]
+    return best_candidates[0] if len(best_candidates) == 1 else None
 
 
 def _is_self_contact(name: str, identifier: str) -> bool:
@@ -363,8 +397,9 @@ def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
     table.cell(1, 3).text = "최근 3개월"
     table.cell(1, 4).text = "최근 6개월"
     for contact in contacts:
+        row = table.add_row()
         _set_row_cells(
-            table.add_row(),
+            row,
             [
                 contact["name"],
                 contact["contact"],
@@ -373,6 +408,11 @@ def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
                 contact["freq_6m"],
             ],
         )
+        if contact.get("is_self_guess", False):
+            label_run = row.cells[0].paragraphs[0].add_run()
+            label_run.add_break()
+            label_run.add_text("(본인 추정)")
+            label_run.font.size = Pt(9)
     if not contacts:
         row = table.add_row()
         row.cells[0].merge(row.cells[4]).text = "집계할 연락 기록이 없습니다."
@@ -590,7 +630,8 @@ def _add_recent_kakao_section(document: Document, memo: WorkMemo) -> None:
         )
 
 def _add_markdown_bullet_list(document: Document, bullet_items: str | list) -> None:
-    items = bullet_items if isinstance(bullet_items, list) else bullet_items.splitlines()
+    raw_items = bullet_items if isinstance(bullet_items, list) else bullet_items.splitlines()
+    items = _join_multiline_source_items(raw_items)
     for item in items:
         stripped_item = str(item).strip()
         if not stripped_item:
@@ -603,7 +644,44 @@ def _add_markdown_bullet_list(document: Document, bullet_items: str | list) -> N
             )
 
 
-_SOURCE_TEXT_PATTERN = re.compile(r"\(출처:[^)]*\)")
+_SOURCE_TEXT_PATTERN = re.compile(r"\(\s*출처\s*:\s*")
+
+
+def _find_source_text_spans(source_text: str) -> tuple[list[tuple[int, int]], bool]:
+    spans: list[tuple[int, int]] = []
+    search_position = 0
+    while match := _SOURCE_TEXT_PATTERN.search(source_text, search_position):
+        depth = 1
+        position = match.end()
+        while position < len(source_text) and depth:
+            if source_text[position] == "(":
+                depth += 1
+            elif source_text[position] == ")":
+                depth -= 1
+            position += 1
+        if depth:
+            return spans, True
+        spans.append((match.start(), position))
+        search_position = position
+    return spans, False
+
+
+def _join_multiline_source_items(items: list | tuple) -> list[str]:
+    joined_items: list[str] = []
+    pending_lines: list[str] = []
+    for item in items:
+        line = str(item).strip()
+        if not line:
+            continue
+        pending_lines.append(line)
+        combined = " ".join(pending_lines)
+        _, has_unclosed_source = _find_source_text_spans(combined)
+        if not has_unclosed_source:
+            joined_items.append(combined)
+            pending_lines.clear()
+    if pending_lines:
+        joined_items.append(" ".join(pending_lines))
+    return joined_items
 
 
 def _add_paragraph_with_source_text(
@@ -614,13 +692,14 @@ def _add_paragraph_with_source_text(
     paragraph = document.add_paragraph(style=style)
     source_text = str(text or "")
     cursor = 0
-    for match in _SOURCE_TEXT_PATTERN.finditer(source_text):
-        if match.start() > cursor:
-            run = paragraph.add_run(source_text[cursor : match.start()])
+    source_spans, _ = _find_source_text_spans(source_text)
+    for start, end in source_spans:
+        if start > cursor:
+            run = paragraph.add_run(source_text[cursor:start])
             run.font.size = Pt(11)
-        source_run = paragraph.add_run(match.group())
+        source_run = paragraph.add_run(source_text[start:end])
         source_run.font.size = Pt(9)
-        cursor = match.end()
+        cursor = end
     if cursor < len(source_text):
         run = paragraph.add_run(source_text[cursor:])
         run.font.size = Pt(11)

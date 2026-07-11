@@ -48,6 +48,8 @@ class HandoverQADialog(QDialog):
         category_row.addWidget(self.save_status_label)
         self.save_button = QPushButton("저장")
         category_row.addWidget(self.save_button)
+        self.close_button = QPushButton("닫기")
+        category_row.addWidget(self.close_button)
 
         self.question_label = QLabel()
         question_font = QFont(self.question_label.font())
@@ -74,6 +76,7 @@ class HandoverQADialog(QDialog):
         self._ensure_answer_slots()
         self.category_group.idClicked.connect(self._select_category)
         self.save_button.clicked.connect(self._save_with_confirmation)
+        self.close_button.clicked.connect(self._save_and_close)
         self.category_buttons[0].setChecked(True)
         self._load_question()
 
@@ -97,6 +100,10 @@ class HandoverQADialog(QDialog):
         self._save_current_answer()
         self.save_status_label.setText("저장됨")
         QTimer.singleShot(1500, self.save_status_label.clear)
+
+    def _save_and_close(self) -> None:
+        self._save_current_answer()
+        self.accept()
 
     def _select_category(self, index: int) -> None:
         if index == self.current_index:

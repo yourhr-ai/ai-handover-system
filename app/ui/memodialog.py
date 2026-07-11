@@ -1,4 +1,5 @@
 import os
+import re
 from collections.abc import Callable
 from html import escape as html_escape
 
@@ -453,22 +454,34 @@ class MemoDialog(QDialog):
     def _format_email_display_text(self, email: dict) -> str:
         date = str(email.get("date") or "")[:10]
         subject = str(email.get("subject") or "(제목 없음)")
-        abbreviated_subject = f"{subject[:10]}..." if len(subject) > 10 else subject
+        abbreviated_subject = f"{subject[:20]}..." if len(subject) > 20 else subject
         return f"{abbreviated_subject} · {date}" if date else abbreviated_subject
 
     def _populate_kakao_tree(self) -> None:
         self.kakao_tree_widget.clear()
         for file_path in self.kakao_file_paths:
-            self.kakao_tree_widget.addTopLevelItem(
-                self._create_simple_checkable_item(
-                    file_path,
-                    os.path.basename(file_path),
-                )
+            file_name = os.path.basename(file_path)
+            item = self._create_simple_checkable_item(
+                file_path,
+                self._format_kakao_display_text(file_name),
             )
+            item.setToolTip(0, file_name)
+            self.kakao_tree_widget.addTopLevelItem(item)
 
         has_kakao_files = bool(self.kakao_file_paths)
         self.kakao_tree_frame.setVisible(has_kakao_files)
         self.kakao_empty_label.setVisible(not has_kakao_files)
+
+    def _format_kakao_display_text(self, file_name: str) -> str:
+        match = re.fullmatch(
+            r"KakaoTalk_(\d{4})(\d{2})(\d{2})_.*_([^_]+)\.txt",
+            file_name,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return file_name
+        year, month, day, room_name = match.groups()
+        return f"{room_name} · {year}-{month}-{day}"
 
     def _create_simple_checkable_item(
         self,
