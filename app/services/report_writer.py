@@ -133,6 +133,8 @@ def save_analysis_result_as_word(
     _add_signature_table(document)
 
     _add_handover_qa_section(document, result, parsed_emails)
+    _add_key_contacts_section(document, result, parsed_emails)
+    _add_separator(document)
 
     if not result.memos:
         document.add_paragraph("작성된 업무 메모 없음")
@@ -146,9 +148,11 @@ def save_analysis_result_as_word(
                 parsed_emails,
             )
 
+    _add_access_rights_checklist(document)
     document.add_page_break()
     _add_manual_heading(document, "문서 통계", font_size=16, space_before=18)
     _add_document_statistics_table(document, result.all_files, analyzed_at)
+    _add_file_activity_statistics(document, result.all_files, analyzed_at)
 
     _add_end_of_document_page(document)
 
@@ -360,6 +364,12 @@ def _add_handover_qa_section(
         )
         _add_multiline_paragraph(document, answer)
 
+
+def _add_key_contacts_section(
+    document: Document,
+    result: AnalysisResult,
+    parsed_emails: list[dict] | None,
+) -> None:
     if result.analysismode == "ai":
         kakao_paths = list(
             dict.fromkeys(
@@ -370,9 +380,20 @@ def _add_handover_qa_section(
         )
         kakao_messages, _ = process_kakao_files(kakao_paths) if kakao_paths else ([], 0)
         contacts = collect_key_contacts(parsed_emails, kakao_messages)
-        _add_key_contacts_table(document, contacts)
+    else:
+        contacts = [
+            {
+                "name": "",
+                "contact": "",
+                "freq_1m": "",
+                "freq_3m": "",
+                "freq_6m": "",
+                "is_self_guess": False,
+            }
+            for _ in range(5)
+        ]
+    _add_key_contacts_table(document, contacts)
 
-    _add_separator(document)
 
 def _add_multiline_paragraph(document: Document, text: str) -> None:
     paragraph = document.add_paragraph()
@@ -385,17 +406,9 @@ def _add_multiline_paragraph(document: Document, text: str) -> None:
 
 def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
     _add_manual_heading(document, "주요 관계자 및 연락처", font_size=13, space_before=12)
-    table = document.add_table(rows=2, cols=5)
+    table = document.add_table(rows=1, cols=3)
     table.style = "Table Grid"
-    name_header = table.cell(0, 0).merge(table.cell(1, 0))
-    contact_header = table.cell(0, 1).merge(table.cell(1, 1))
-    frequency_header = table.cell(0, 2).merge(table.cell(0, 4))
-    name_header.text = "이름"
-    contact_header.text = "연락 방법"
-    frequency_header.text = "연락 빈도"
-    table.cell(1, 2).text = "최근 1개월"
-    table.cell(1, 3).text = "최근 3개월"
-    table.cell(1, 4).text = "최근 6개월"
+    _set_row_cells(table.rows[0], ["이름", "연락 방법", "연락 빈도"])
     for contact in contacts:
         row = table.add_row()
         _set_row_cells(
@@ -403,9 +416,7 @@ def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
             [
                 contact["name"],
                 contact["contact"],
-                contact["freq_1m"],
-                contact["freq_3m"],
-                contact["freq_6m"],
+                _format_contact_frequency(contact),
             ],
         )
         if contact.get("is_self_guess", False):
@@ -415,7 +426,42 @@ def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
             label_run.font.size = Pt(9)
     if not contacts:
         row = table.add_row()
-        row.cells[0].merge(row.cells[4]).text = "집계할 연락 기록이 없습니다."
+        row.cells[0].merge(row.cells[2]).text = "집계할 연락 기록이 없습니다."
+    _center_table_cells(table)
+
+
+def _format_contact_frequency(contact: dict) -> str:
+    if not any(
+        str(contact.get(key, ""))
+        for key in ("freq_1m", "freq_3m", "freq_6m")
+    ):
+        return ""
+    return (
+        f"최근 1개월 {contact.get('freq_1m', 0)}건 · "
+        f"3개월 {contact.get('freq_3m', 0)}건 · "
+        f"6개월 {contact.get('freq_6m', 0)}건"
+    )
+
+
+def _add_access_rights_checklist(document: Document) -> None:
+    _add_manual_heading(
+        document,
+        "계정/시스템 접근 권한 체크리스트",
+        font_size=13,
+        space_before=12,
+    )
+    table = document.add_table(rows=6, cols=5)
+    table.style = "Table Grid"
+    _set_row_cells(
+        table.rows[0],
+        [
+            "시스템/서비스명",
+            "계정(ID)",
+            "비밀번호 보관 위치",
+            "승인 필요 여부",
+            "비고",
+        ],
+    )
     _center_table_cells(table)
 
 
@@ -978,6 +1024,46 @@ def _add_document_statistics_table(
             ],
         ],
     )
+    _center_table_cells(table)
+
+
+def _add_file_activity_statistics(
+    document: Document,
+    all_files: list[AnalyzedFile],
+    analyzed_at: datetime,
+) -> None:
+    _add_manual_heading(
+        document,
+        "파일 활동 통계",
+        font_size=13,
+        space_before=12,
+    )
+    threshold = analyzed_at.timestamp() - (30 * 24 * 60 * 60)
+    activity_counts: Counter[str] = Counter()
+    for file in all_files:
+        if file.modified_timestamp < threshold:
+            continue
+        top_level_folder = file.relative_path.replace("\\", "/").split("/", 1)[0]
+        if top_level_folder:
+            activity_counts[top_level_folder] += 1
+
+    ranked_folders = sorted(
+        activity_counts.items(),
+        key=lambda item: (-item[1], item[0].casefold()),
+    )[:5]
+    table = document.add_table(rows=6, cols=3)
+    table.style = "Table Grid"
+    _set_row_cells(
+        table.rows[0],
+        ["순위", "폴더명", "최근 30일 수정 파일 수"],
+    )
+    for row_index in range(1, 6):
+        if row_index <= len(ranked_folders):
+            folder_name, count = ranked_folders[row_index - 1]
+            values = [row_index, folder_name, count]
+        else:
+            values = ["", "", ""]
+        _set_row_cells(table.rows[row_index], values)
     _center_table_cells(table)
 
 

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QTabWidget,
@@ -26,6 +27,27 @@ from PySide6.QtWidgets import (
 
 from app.services.analysis_result import FolderTreeNode, HandoverQA, WorkMemo
 from app.ui.handover_qa_dialog import HandoverQADialog
+
+
+def _calculate_completion_percentage(
+    memos: list[WorkMemo],
+    handover_qa: HandoverQA,
+) -> int:
+    memo_count = len(memos)
+    if memo_count >= 3:
+        memo_score = 100
+    elif memo_count == 2:
+        memo_score = 70
+    elif memo_count == 1:
+        memo_score = 40
+    else:
+        memo_score = 0
+
+    answers = (handover_qa.answers + ["", "", "", "", ""])[:5]
+    answered_count = sum(bool(answer.strip()) for answer in answers)
+    question_score = answered_count / 5 * 100
+    percentage = round(memo_score * 0.6 + question_score * 0.4)
+    return max(0, min(100, percentage))
 
 
 MEMO_DIALOG_WIDTH = 1000
@@ -138,6 +160,10 @@ class MemoDialog(QDialog):
         _set_button_role(self.handover_qa_button, "secondary")
         self.complete_button = QPushButton("인수인계서 저장")
         _set_button_role(self.complete_button, "primary")
+        self.completion_label = QLabel("")
+        self.completion_progress_bar = QProgressBar()
+        self.completion_progress_bar.setRange(0, 100)
+        self.completion_progress_bar.setTextVisible(False)
         self.status_label = QLabel("")
         self.title_input = QLineEdit()
         self.title_input.setObjectName("memoTitleInput")
@@ -231,6 +257,7 @@ class MemoDialog(QDialog):
             )
         self._refresh_memo_list()
         self._update_handover_qa_button_enabled()
+        self._update_completion_progress()
         if initial_linked_folders:
             self.memo_list.setCurrentRow(len(self.memos) - 1)
 
@@ -332,6 +359,12 @@ class MemoDialog(QDialog):
         content_layout.addWidget(self.related_target_tabs, 30)
 
         main_layout.addLayout(button_bar)
+        main_layout.addSpacing(6)
+        completion_row = QHBoxLayout()
+        completion_row.setSpacing(MEMO_BUTTON_SPACING)
+        completion_row.addWidget(self.completion_label)
+        completion_row.addWidget(self.completion_progress_bar, stretch=1)
+        main_layout.addLayout(completion_row)
         main_layout.addSpacing(6)
         main_layout.addWidget(self.status_label)
         main_layout.addSpacing(6)
@@ -787,6 +820,7 @@ class MemoDialog(QDialog):
 
         self.memo_list.setCurrentRow(len(self.memos) - 1)
         self._update_handover_qa_button_enabled()
+        self._update_completion_progress()
 
     def _delete_memo(self) -> None:
         row = self.memo_list.currentRow()
@@ -797,6 +831,7 @@ class MemoDialog(QDialog):
         self.has_unsaved_changes = False
         self._refresh_memo_list()
         self._update_handover_qa_button_enabled()
+        self._update_completion_progress()
 
     def _move_current_memo(self, offset: int) -> None:
         row = self.memo_list.currentRow()
@@ -893,6 +928,7 @@ class MemoDialog(QDialog):
         self.status_label.setText("메모가 저장되었습니다")
         if show_success_message:
             QMessageBox.information(self, "업무 메모 저장", "메모가 저장되었습니다.")
+        self._update_completion_progress()
         return True
 
     def _save_word_and_close(self) -> None:
@@ -928,6 +964,12 @@ class MemoDialog(QDialog):
             handover_qa=self.handover_qa,
             parent=self,
         ).exec()
+        self._update_completion_progress()
+
+    def _update_completion_progress(self) -> None:
+        percentage = _calculate_completion_percentage(self.memos, self.handover_qa)
+        self.completion_progress_bar.setValue(percentage)
+        self.completion_label.setText(f"인수인계서 완성도 {percentage}%")
 
     def _validate_handover_qa(self) -> bool:
         answers = (self.handover_qa.answers + ["", "", "", "", ""])[:5]
