@@ -385,19 +385,9 @@ def _add_key_contacts_section(
         )
         kakao_messages, _ = process_kakao_files(kakao_paths) if kakao_paths else ([], 0)
         contacts = collect_key_contacts(parsed_emails, kakao_messages)
+        _add_key_contacts_table(document, contacts, is_ai_mode=True)
     else:
-        contacts = [
-            {
-                "name": "",
-                "contact": "",
-                "freq_1m": "",
-                "freq_3m": "",
-                "freq_6m": "",
-                "is_self_guess": False,
-            }
-            for _ in range(5)
-        ]
-    _add_key_contacts_table(document, contacts)
+        _add_key_contacts_table(document, [], is_ai_mode=False)
 
 
 def _add_multiline_paragraph(document: Document, text: str) -> None:
@@ -409,8 +399,35 @@ def _add_multiline_paragraph(document: Document, text: str) -> None:
         paragraph.add_run(line)
 
 
-def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
+def _add_key_contacts_table(
+    document: Document,
+    contacts: list[dict],
+    *,
+    is_ai_mode: bool,
+) -> None:
     _add_manual_heading(document, "주요 관계자 및 연락처", font_size=13, space_before=12)
+    if is_ai_mode:
+        _add_ai_key_contacts_table(document, contacts)
+    else:
+        _add_basic_key_contacts_table(document)
+
+
+def _add_basic_key_contacts_table(document: Document) -> None:
+    table = document.add_table(rows=6, cols=3)
+    table.style = "Table Grid"
+    table.autofit = False
+    _set_row_cells(table.rows[0], ["이름", "연락 방법", "연락 빈도"])
+    section = document.sections[-1]
+    available_width = section.page_width - section.left_margin - section.right_margin
+    widths = [Cm(2.5), Cm(4), available_width - Cm(6.5)]
+    _set_table_grid_column_widths(table, widths)
+    for row in table.rows:
+        for cell, width in zip(row.cells, widths):
+            cell.width = width
+    _center_table_cells(table)
+
+
+def _add_ai_key_contacts_table(document: Document, contacts: list[dict]) -> None:
     table = document.add_table(rows=2, cols=5)
     table.style = "Table Grid"
     table.autofit = False
@@ -443,26 +460,12 @@ def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
     if not contacts:
         row = table.add_row()
         row.cells[0].merge(row.cells[4]).text = "집계할 연락 기록이 없습니다."
-    _set_key_contacts_table_column_widths(document, table)
+    _set_ai_key_contacts_table_column_widths(table)
     _center_table_cells(table)
 
 
-def _set_key_contacts_table_column_widths(document: Document, table: Any) -> None:
-    section = document.sections[-1]
-    available_width = section.page_width - section.left_margin - section.right_margin
-    name_width = Cm(2.5)
-    contact_width = (available_width - name_width) // 2
-    frequency_width = (available_width - name_width - contact_width) // 3
-    widths = [
-        name_width,
-        contact_width,
-        frequency_width,
-        frequency_width,
-        available_width
-        - name_width
-        - contact_width
-        - frequency_width * 2,
-    ]
+def _set_ai_key_contacts_table_column_widths(table: Any) -> None:
+    widths = [Cm(2.5), Cm(4), Cm(2.3), Cm(2.3), Cm(2.3)]
     _set_table_grid_column_widths(table, widths)
     name_header = table.cell(0, 0)
     contact_header = table.cell(0, 1)
@@ -470,9 +473,15 @@ def _set_key_contacts_table_column_widths(document: Document, table: Any) -> Non
     name_header.width = widths[0]
     contact_header.width = widths[1]
     frequency_header.width = sum(widths[2:])
+    for column_index in range(2, 5):
+        table.cell(1, column_index).width = widths[column_index]
     for row in table.rows[2:]:
-        for cell, width in zip(row.cells, widths):
-            cell.width = width
+        unique_cells = {id(cell._tc) for cell in row.cells}
+        if len(unique_cells) == 1:
+            row.cells[0].width = sum(widths)
+        else:
+            for cell, width in zip(row.cells, widths):
+                cell.width = width
 
 
 def _add_access_rights_checklist(document: Document) -> None:
