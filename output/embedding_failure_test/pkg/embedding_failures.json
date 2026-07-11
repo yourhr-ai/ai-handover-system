@@ -1,0 +1,26 @@
+[
+  {
+    "source_file": "embedding_failure_test/f2.txt",
+    "chunk_index": 0,
+    "metadata": {
+      "source_path": "embedding_failure_test/f2.txt",
+      "file_name": "f2.txt",
+      "modified_at": "now"
+    },
+    "chunk_text_preview": "text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 text 2 tex",
+    "batch_index": 1,
+    "error": "RuntimeError: simulated rate limit"
+  },
+  {
+    "source_file": "embedding_failure_test/f3.txt",
+    "chunk_index": 0,
+    "metadata": {
+      "source_path": "embedding_failure_test/f3.txt",
+      "file_name": "f3.txt",
+      "modified_at": "now"
+    },
+    "chunk_text_preview": "text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 text 3 tex",
+    "batch_index": 1,
+    "error": "RuntimeError: simulated rate limit"
+  }
+]

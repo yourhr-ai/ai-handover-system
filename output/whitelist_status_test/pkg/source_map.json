@@ -1,0 +1,19 @@
+{
+  "chunk-000000": {
+    "source_path": "whitelist_status_test/sample.hwp",
+    "file_name": "sample.hwp",
+    "modified_at": "now",
+    "extraction_status": "not_in_whitelist"
+  },
+  "chunk-000001": {
+    "source_path": "whitelist_status_test/sheet.xlsx",
+    "file_name": "sheet.xlsx",
+    "modified_at": "now",
+    "extraction_status": "not_in_whitelist"
+  },
+  "chunk-000002": {
+    "source_path": "whitelist_status_test/note.txt",
+    "file_name": "note.txt",
+    "modified_at": "now"
+  }
+}

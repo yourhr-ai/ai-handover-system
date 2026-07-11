@@ -1,0 +1,347 @@
+/* ============================================
+   공통 - 화면 배경
+   ============================================ */
+/* 공통 - 화면 배경 */
+/* 메인 화면과 메모 작성 팝업 전체 바탕입니다. background-color는 화면 바탕색을 바꿉니다. */
+#mainCentral,
+#memoDialog {
+    background-color: #F3F4F6; /* 메인 화면/메모 작성 팝업 전체 배경색 - 이 색을 바꾸면 화면 바탕색이 바뀜 */
+}
+
+/* 메인 화면 전체를 감싸는 흰색 카드입니다. background-color=카드 배경색, border-radius=둥근 모서리, border=카드 테두리입니다. */
+#appShell {
+    background-color: #ffffff; /* 메인 화면 카드 배경색 - 이 색을 바꾸면 흰 카드 바탕색이 바뀜 */
+    border-radius: 16px; /* 메인 화면 카드 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    border: 1px solid #E5E7EB; /* 메인 화면 카드 테두리 - 이 색을 바꾸면 카드 외곽선 색이 바뀜 */
+}
+
+/* ============================================
+   공통 - 버튼
+   ============================================ */
+/* 메인 화면/메모 작성 팝업의 주요 버튼(분석 시작, 메모 작성 및 인수인계서 저장, 인수인계서 저장)입니다. color=글자색, background-color=배경색, border=테두리, padding=안쪽 여백입니다. */
+QPushButton[buttonRole="primary"] {
+    background-color: #1A1A1A; /* 주요 버튼 배경색 - 이 색을 바꾸면 분석 시작 같은 강조 버튼 배경이 바뀜 */
+    color: #ffffff; /* 주요 버튼 글자색 - 이 색을 바꾸면 버튼 안의 글자색이 바뀜 */
+    font-weight: bold; /* 주요 버튼 글자 굵기 - bold는 굵게 표시 */
+    font-size: 14px; /* 주요 버튼 글자 크기 - 숫자가 크면 글자가 커짐 */
+    padding: 10px 16px; /* 주요 버튼 안쪽 여백 - 숫자가 크면 버튼 내부 공간이 넓어짐 */
+    border: 1px solid #1A1A1A; /* 주요 버튼 테두리 두께/색상 - 이 색을 바꾸면 강조 버튼 테두리가 바뀜 */
+    border-radius: 9px; /* 주요 버튼 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+}
+
+/* 주요 버튼에 마우스를 올렸을 때입니다. background-color는 마우스 올림 상태의 배경색입니다. */
+QPushButton[buttonRole="primary"]:hover {
+    background-color: #333333; /* 주요 버튼 hover 배경색 - 이 색을 바꾸면 마우스를 올렸을 때 색이 바뀜 */
+}
+
+/* 주요 버튼이 비활성화됐을 때입니다. background-color와 border-color는 누를 수 없는 버튼 색을 바꿉니다. */
+QPushButton[buttonRole="primary"]:disabled {
+    background-color: #A3A3A3; /* 비활성 주요 버튼 배경색 - 이 색을 바꾸면 회색 처리된 강조 버튼 배경이 바뀜 */
+    border-color: #A3A3A3; /* 비활성 주요 버튼 테두리색 - 이 색을 바꾸면 회색 처리된 강조 버튼 테두리가 바뀜 */
+}
+
+/* 메인 화면/메모 작성 팝업의 보조 버튼(폴더 선택, 삭제, API 키 설정 등)입니다. 흰 배경과 테두리 버튼의 기본 모양입니다. */
+QPushButton[buttonRole="secondary"] {
+    background-color: #ffffff; /* 보조 버튼 배경색 - 이 색을 바꾸면 일반 버튼 배경이 바뀜 */
+    color: #1A1A1A; /* 보조 버튼 글자색 - 이 색을 바꾸면 일반 버튼 글자색이 바뀜 */
+    font-size: 13px; /* 보조 버튼 글자 크기 - 숫자가 크면 글자가 커짐 */
+    padding: 9px 16px; /* 보조 버튼 안쪽 여백 - 숫자가 크면 버튼 내부 공간이 넓어짐 */
+    border: 1px solid #D0D0D0; /* 보조 버튼 테두리 두께/색상 - 이 색을 바꾸면 일반 버튼 테두리가 바뀜 */
+    border-radius: 6px; /* 보조 버튼 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+}
+
+/* 보조 버튼에 마우스를 올렸을 때입니다. background-color는 마우스 올림 상태의 배경색입니다. */
+QPushButton[buttonRole="secondary"]:hover {
+    background-color: #F5F5F5; /* 보조 버튼 hover 배경색 - 이 색을 바꾸면 마우스를 올렸을 때 색이 바뀜 */
+}
+
+/* 보조 버튼이 비활성화됐을 때입니다. color=글자색, border-color=테두리색, background-color=배경색입니다. */
+QPushButton[buttonRole="secondary"]:disabled {
+    color: #AAAAAA; /* 비활성 보조 버튼 글자색 - 이 색을 바꾸면 회색 처리된 일반 버튼 글자가 바뀜 */
+    border-color: #E0E0E0; /* 비활성 보조 버튼 테두리색 - 이 색을 바꾸면 회색 처리된 일반 버튼 테두리가 바뀜 */
+    background-color: #F7F7F7; /* 비활성 보조 버튼 배경색 - 이 색을 바꾸면 회색 처리된 일반 버튼 배경이 바뀜 */
+}
+
+/* ============================================
+   메인 화면 - 브랜드/제목/안내 라벨
+   ============================================ */
+/* 메인 화면 - 브랜드/제목/안내 라벨 */
+/* 메인 화면 하단 저작권 문구입니다. font-size는 글자 크기, color는 글자색입니다. */
+#copyrightLabel {
+    font-size: 10px; /* 저작권 글자 크기 - 숫자가 크면 하단 문구가 커짐 */
+    color: #999999; /* 저작권 글자색 - 이 색을 바꾸면 하단 문구 색이 바뀜 */
+}
+
+/* 메인 화면의 보조 안내 문구(분석 모드 안내, 메일/카톡 지원 형식)입니다. color=글자색, font-size=글자 크기입니다. */
+#analysisModeNotice,
+#emailFormatNotice,
+#kakaoFormatNotice {
+    color: #666666; /* 안내 문구 글자색 - 이 색을 바꾸면 설명 문구 색이 바뀜 */
+    font-size: 12px; /* 안내 문구 글자 크기 - 숫자가 크면 설명 문구가 커짐 */
+}
+
+/* 메인 화면의 라이선스 만료 경고 문구입니다. color=글자색, padding=문구 주변 안쪽 여백입니다. */
+#licenseStatusLabel {
+    color: #b91c1c; /* 라이선스 경고 글자색 - 이 색을 바꾸면 만료 경고 색이 바뀜 */
+    font-size: 13px; /* 라이선스 경고 글자 크기 - 숫자가 크면 경고 문구가 커짐 */
+    font-weight: bold; /* 라이선스 경고 글자 굵기 - bold는 굵게 표시 */
+    padding: 6px; /* 라이선스 경고 안쪽 여백 - 숫자가 크면 문구 주변 공간이 넓어짐 */
+}
+
+/* 메인 화면의 큰 제목(1. 분석 모드 선택, 2. 분석 대상 선택)입니다. font-size는 제목 크기입니다. */
+#sectionTitle {
+    font-size: 17px; /* 섹션 제목 글자 크기 - 숫자가 크면 제목이 커짐 */
+    font-weight: 600; /* 섹션 제목 굵기 - 숫자가 클수록 굵어짐 */
+    color: #012d79; /* 섹션 제목 글자색 - 이 색을 바꾸면 제목 색이 바뀜 */
+}
+
+/* 메인 화면의 빈 목록 안내 문구(선택된 폴더/메일/카톡 없음)입니다. 흐린 회색 안내 글자입니다. */
+#emptyStateLabel {
+    color: #324981; /* 빈 상태 안내 글자색 - 이 색을 바꾸면 목록이 비었을 때 문구 색이 바뀜 */
+    font-size: 14px; /* 빈 상태 안내 글자 크기 - 숫자가 크면 안내 문구가 커짐 */
+}
+
+/* ============================================
+   메인 화면 - 모드 카드
+   ============================================ */
+/* 메인 화면 - 모드 카드 */
+/* 기본 모드/AI 모드 선택 카드의 기본 상태입니다. border=테두리, border-radius=모서리 둥근 정도, background-color=배경색입니다. */
+#modeCard {
+    border: 1px solid #D0D0D0; /* 카드 테두리 두께/색상 - 이 색을 바꾸면 선택 전 카드 테두리가 바뀜 */
+    border-radius: 10px; /* 카드 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    background-color: #ffffff; /* 카드 배경색 - 이 색을 바꾸면 선택 전 카드 배경이 바뀜 */
+}
+
+/* 기본 모드/AI 모드 카드가 선택됐을 때입니다. 파란 테두리와 연한 배경으로 강조됩니다. */
+#modeCard[selected="true"] {
+    border: 1.5px solid #5685eb; /* 선택된 카드 테두리 두께/색상 - 이 색을 바꾸면 선택 강조색이 바뀜 */
+    background-color: #EFF6FF; /* 선택된 카드 배경색 - 이 색을 바꾸면 선택된 카드 배경이 바뀜 */
+}
+
+/* 모드 카드 안의 제목(기본 모드, AI 모드)입니다. font-size=글자 크기, color=글자색입니다. */
+#modeCardTitle {
+    font-size: 14px; /* 모드명 글자 크기 - 숫자가 크면 기본 모드/AI 모드 글자가 커짐 */
+    font-weight: bold; /* 모드명 글자 굵기 - bold는 굵게 표시 */
+    color: #1A1A1A; /* 모드명 글자색 - 이 색을 바꾸면 기본 모드/AI 모드 글자색이 바뀜 */
+}
+
+/* 모드 카드 안의 설명 문구입니다. 흐린 회색의 작은 설명 글자입니다. */
+#modeCardDescription {
+    font-size: 11px; /* 모드 설명 글자 크기 - 숫자가 크면 설명 문구가 커짐 */
+    color: #9CA3AF; /* 모드 설명 글자색 - 이 색을 바꾸면 카드 설명 문구 색이 바뀜 */
+}
+
+/* 선택된 모드 카드 왼쪽의 ● 기호입니다. ※ 라디오 버튼 대신 쓰는 텍스트 기호라 구조는 건드리지 마세요. */
+#modeCardSymbol[selected="true"] {
+    font-size: 18px; /* 선택 기호 크기 - 숫자가 크면 ● 기호가 커짐 */
+    color: #2563EB; /* 선택 기호 색 - 이 색을 바꾸면 선택된 ● 색이 바뀜 */
+    font-weight: bold; /* 선택 기호 굵기 - bold는 굵게 표시 */
+}
+
+/* 선택되지 않은 모드 카드 왼쪽의 ○ 기호입니다. ※ 이 부분은 건드리지 마세요 - 건드리면 라디오버튼 대체 표시가 깨질 수 있습니다. */
+#modeCardSymbol[selected="false"] {
+    font-size: 18px; /* 미선택 기호 크기 - 숫자가 크면 ○ 기호가 커짐 */
+    color: #888888; /* 미선택 기호 색 - 이 색을 바꾸면 선택되지 않은 ○ 색이 바뀜 */
+}
+
+/* ============================================
+   메인 화면 - 입력창
+   ============================================ */
+/* 메인 화면 - 입력창 */
+/* 메인 화면의 폴더 경로 입력창(분석 대상 폴더 경로)입니다. min-height=높이, border=테두리, padding-left=왼쪽 안쪽 여백입니다. */
+#folderPathInput {
+    min-height: 36px; /* 입력창 최소 높이 - 숫자가 크면 입력창이 더 높아짐 */
+    border: 1px solid #E5E7EB; /* 입력창 테두리 두께/색상 - 이 색을 바꾸면 폴더 경로 입력창 테두리가 바뀜 */
+    border-radius: 8px; /* 입력창 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    padding-left: 10px; /* 입력창 왼쪽 안쪽 여백 - 숫자가 크면 글자가 오른쪽으로 더 밀림 */
+    background-color: #ffffff; /* 입력창 배경색 - 이 색을 바꾸면 폴더 경로 입력창 배경이 바뀜 */
+}
+
+/* ============================================
+   메인 화면 - 목록
+   ============================================ */
+/* 메인 화면 - 목록 */
+/* 메인 화면의 폴더/메일/메신저(카톡) 목록 박스입니다. ※ 체크박스는 텍스트 기호 방식이므로 selector 구조는 건드리지 마세요 - 건드리면 체크박스가 깨질 수 있습니다. */
+#mainFolderList,
+#mainEmailList,
+#mainKakaoList {
+    border: 1px dashed #D0D0D0; /* 목록 박스 테두리 두께/색상 - 이 색을 바꾸면 폴더/메일/카톡 목록 테두리가 바뀜 */
+    border-radius: 6px; /* 목록 박스 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    background-color: #ffffff; /* 목록 박스 배경색 - 이 색을 바꾸면 목록 내부 배경이 바뀜 */
+}
+
+/* ============================================
+   공통 - 탭
+   ============================================ */
+/* 공통 - 탭 */
+/* 메인 화면의 분석 대상 선택 전체 박스입니다. 폴더/메일/메신저 탭과 아래 콘텐츠를 모두 감싸는 외곽 테두리입니다. */
+#analysisTargetFrame {
+    border: 1px solid #E5E7EB; /* 분석 대상 선택 전체 박스 테두리 - 이 색을 바꾸면 탭 영역 전체 외곽선이 바뀜 */
+    border-radius: 10px; /* 분석 대상 선택 전체 박스 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    background-color: #ffffff; /* 분석 대상 선택 전체 박스 배경색 - 이 색을 바꾸면 탭 영역 바탕색이 바뀜 */
+}
+
+/* 메인 화면의 폴더/메일/메신저 탭과 메모 작성 팝업의 폴더/메일/카톡 탭 내용 영역입니다. background-color=배경색, border=테두리, padding=안쪽 여백입니다. */
+#analysisTargetTabs::pane {
+    background-color: #ffffff; /* 탭 내용 영역 배경색 - 이 색을 바꾸면 탭 아래 큰 영역 배경이 바뀜 */
+    border: 1px solid #c0d1f3; /* 탭 내용 영역 자체 테두리 제거 - 메인 화면은 바깥 #analysisTargetFrame이 외곽선을 담당함 */
+    border-top: none; /* 탭 내용 영역 위쪽 테두리 제거 - 값을 바꾸면 탭과 내용 사이 선이 달라짐 */
+    border-bottom-left-radius: 8px; /* 왼쪽 아래 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    border-bottom-right-radius: 8px; /* 오른쪽 아래 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    top: -3px; /* 탭과 내용 영역을 겹치는 정도 - 숫자를 바꾸면 위아래 위치가 미세하게 바뀜 */
+    padding: 10px; /* 탭 내용 영역 안쪽 여백 - 숫자가 크면 내부 공간이 넓어짐 */
+}
+
+/* 메인 화면/메모 팝업의 선택되지 않은 탭 버튼입니다. background-color=탭 배경색, color=글자색, border-bottom=아래 선입니다. */
+#memoRelatedTabs::pane {
+    background-color: #ffffff;
+    border: 1px solid #c0d1f3;
+    border-top: none;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    top: -3px;
+    padding: 10px;
+}
+
+#analysisTargetTabs QTabBar::tab,
+#memoRelatedTabs QTabBar::tab {
+    background-color: #e9ebf0; /* 선택되지 않은 탭 배경색 - 이 색을 바꾸면 비활성 탭 배경이 바뀜 */
+    color: #6B7280; /* 선택되지 않은 탭 글자색 - 이 색을 바꾸면 비활성 탭 글자색이 바뀜 */
+    border: 1px solid #c0d1f3; /* 탭 바깥 테두리 제거 - 값을 넣으면 탭 테두리가 생김 */
+    border-bottom: 1px solid #E5E7EB; /* 선택되지 않은 탭 아래 선 - 이 색을 바꾸면 탭 하단 선 색이 바뀜 */
+    margin: 0; /* 탭 바깥 여백 - 숫자가 크면 탭 사이/주변 공간이 벌어짐 */
+    padding: 6px 12px; /* 탭 안쪽 여백 - 숫자가 크면 탭 버튼이 커짐 */
+    min-height: 28px; /* 탭 최소 높이 - 숫자가 크면 탭이 더 높아짐 */
+    font-size: 12px; /* 탭 글자 크기 - 숫자가 크면 탭 글자가 커짐 */
+}
+
+/* 메인 화면/메모 팝업의 현재 선택된 탭 버튼입니다. 흰 배경, 진한 글자, 파란 밑줄을 정합니다. */
+#analysisTargetTabs QTabBar::tab:selected,
+#memoRelatedTabs QTabBar::tab:selected {
+    background-color: #ffffff; /* 선택된 탭 배경색 - 이 색을 바꾸면 현재 탭 배경이 바뀜 */
+    color: #111827; /* 선택된 탭 글자색 - 이 색을 바꾸면 현재 탭 글자색이 바뀜 */
+    font-weight: bold; /* 선택된 탭 글자 굵기 - bold는 굵게 표시 */
+    border: 1px solid #c0d1f3; /* 선택된 탭 바깥 테두리 제거 - 값을 넣으면 탭 테두리가 생김 */
+    border-bottom: 2px solid #2563EB; /* 선택된 탭 파란 밑줄 - 이 색을 바꾸면 현재 탭 강조색이 바뀜 */
+}
+
+/* 메인 화면/메모 팝업의 선택되지 않은 탭에 마우스를 올렸을 때입니다. background-color는 hover 배경색입니다. */
+#analysisTargetTabs QTabBar::tab:!selected:hover,
+#memoRelatedTabs QTabBar::tab:!selected:hover {
+    background-color: #E5E7EB; /* 마우스를 올린 비활성 탭 배경색 - 이 색을 바꾸면 탭 hover 색이 바뀜 */
+}
+
+/* ============================================
+   메인 화면 - 구분선
+   ============================================ */
+/* 메인 화면 - 구분선 */
+/* 메인 화면 하단 버튼 줄 위의 가로 구분선입니다. background-color는 선 색을 바꿉니다. */
+#actionSeparator {
+    background-color: #E0E0E0; /* 구분선 색 - 이 색을 바꾸면 하단 버튼 위 가로선 색이 바뀜 */
+    border: none; /* 구분선 바깥 테두리 제거 - 값을 넣으면 선 주변 테두리가 생김 */
+}
+
+/* ============================================
+   메인 화면 - 분석 완료 메시지
+   ============================================ */
+/* 메인 화면 - 분석 완료 메시지 */
+/* 메인 화면의 분석 완료 팝업 전체입니다. background-color는 팝업 바탕색을 바꿉니다. */
+#analysisCompleteNotice {
+    background-color: #ffffff; /* 분석 완료 팝업 배경색 - 이 색을 바꾸면 팝업 바탕색이 바뀜 */
+}
+
+/* 메인 화면의 분석 완료 팝업 안 안내 문구입니다. color=글자색, font-size=글자 크기, padding=안쪽 여백입니다. */
+#analysisCompleteNotice QLabel {
+    color: #1A1A1A; /* 분석 완료 팝업 글자색 - 이 색을 바꾸면 팝업 안내문 색이 바뀜 */
+    font-size: 14px; /* 분석 완료 팝업 글자 크기 - 숫자가 크면 안내문이 커짐 */
+    padding: 8px; /* 분석 완료 팝업 글자 주변 안쪽 여백 - 숫자가 크면 글자 주변 공간이 넓어짐 */
+}
+
+/* ============================================
+   메모 팝업 - 메모 목록
+   ============================================ */
+/* 메모 팝업 - 메모 목록 */
+/* 메모 작성 팝업 왼쪽의 메모 목록 박스입니다. border=테두리, border-radius=둥근 모서리, background-color=배경색입니다. */
+#memoList {
+    border: 1px solid #E0E0E0; /* 메모 목록 박스 테두리 - 이 색을 바꾸면 메모 목록 테두리가 바뀜 */
+    border-radius: 6px; /* 메모 목록 박스 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+    background-color: #FFFFFF; /* 메모 목록 박스 배경색 - 이 색을 바꾸면 메모 목록 내부 배경이 바뀜 */
+    outline: 0; /* 포커스 외곽선 제거 - 숫자를 키우면 선택 시 외곽선이 보일 수 있음 */
+}
+
+/* 메모 작성 팝업 메모 목록의 각 항목입니다. border-bottom은 항목 사이 아래 구분선입니다. */
+#memoList::item {
+    border-bottom: 1px solid #EEEEEE; /* 메모 항목 아래 구분선 - 이 색을 바꾸면 항목 사이 선 색이 바뀜 */
+}
+
+/* 메모 작성 팝업 메모 목록에서 선택된 항목입니다. background-color는 선택된 행의 배경색입니다. */
+#memoList::item:selected {
+    background-color: #E3F0FF; /* 선택된 메모 항목 배경색 - 이 색을 바꾸면 선택 행의 강조색이 바뀜 */
+}
+
+/* ============================================
+   메모 팝업 - 입력창
+   ============================================ */
+/* 메모 팝업 - 입력창 */
+/* 메모 작성 팝업의 메모 제목 입력창입니다. font-size=글자 크기, padding=안쪽 여백, border=테두리입니다. */
+#memoTitleInput {
+    font-size: 15px; /* 제목 입력창 글자 크기 - 숫자가 크면 제목 입력 글자가 커짐 */
+    padding: 8px 10px; /* 제목 입력창 안쪽 여백 - 숫자가 크면 입력창 내부 공간이 넓어짐 */
+    background-color: #ffffff; /* 제목 입력창 배경색 - 이 색을 바꾸면 제목 입력창 배경이 바뀜 */
+    border: 1px solid #E0E0E0; /* 제목 입력창 테두리 - 이 색을 바꾸면 제목 입력창 테두리색이 바뀜 */
+    border-radius: 6px; /* 제목 입력창 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+}
+
+/* 메모 작성 팝업의 메모 내용 입력창입니다. font-size=글자 크기, padding=안쪽 여백, background-color=배경색입니다. */
+#memoContentInput {
+    font-size: 14px; /* 내용 입력창 글자 크기 - 숫자가 크면 본문 글자가 커짐 */
+    padding: 10px; /* 내용 입력창 안쪽 여백 - 숫자가 크면 본문 입력 공간의 여백이 넓어짐 */
+    background-color: #ffffff; /* 내용 입력창 배경색 - 이 색을 바꾸면 본문 입력창 배경이 바뀜 */
+    border: 1px solid #E0E0E0; /* 내용 입력창 테두리 - 이 색을 바꾸면 본문 입력창 테두리색이 바뀜 */
+    border-radius: 6px; /* 내용 입력창 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+}
+
+/* 메모 작성 팝업 오른쪽의 폴더/메일/카톡 검색 입력창입니다. font-size=글자 크기, padding=안쪽 여백, border=테두리입니다. */
+#memoSearchInput {
+    font-size: 13px; /* 검색 입력창 글자 크기 - 숫자가 크면 검색 글자가 커짐 */
+    padding: 5px; /* 검색 입력창 안쪽 여백 - 숫자가 크면 검색창 내부 공간이 넓어짐 */
+    border: 1px solid #E0E0E0; /* 검색 입력창 테두리 - 이 색을 바꾸면 검색창 테두리색이 바뀜 */
+    border-radius: 4px; /* 검색 입력창 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+}
+
+/* ============================================
+   메모 팝업 - 라벨
+   ============================================ */
+/* 메모 팝업 - 라벨 */
+/* 메모 작성 팝업의 작은 섹션 라벨(검색 등)입니다. color=글자색, font-size=글자 크기입니다. */
+#memoSectionLabel {
+    color: #999999; /* 작은 섹션 라벨 글자색 - 이 색을 바꾸면 검색 라벨 같은 작은 글자 색이 바뀜 */
+    font-size: 11px; /* 작은 섹션 라벨 글자 크기 - 숫자가 크면 라벨이 커짐 */
+    font-weight: 600; /* 작은 섹션 라벨 굵기 - 숫자가 클수록 굵어짐 */
+}
+
+/* 메모 작성 팝업의 강조 라벨(메모 목록, 메모 제목, 메모 내용 등)입니다. */
+#memoEmphasisLabel {
+    color: #1A1A1A; /* 강조 라벨 글자색 - 이 색을 바꾸면 메모 목록/제목/내용 라벨 색이 바뀜 */
+    font-size: 13px; /* 강조 라벨 글자 크기 - 숫자가 크면 라벨이 커짐 */
+    font-weight: bold; /* 강조 라벨 굵기 - bold는 굵게 표시 */
+}
+
+/* 메모 작성 팝업 오른쪽 탭에서 데이터가 없을 때 보이는 안내 문구입니다. */
+#memoEmptyLabel {
+    color: #AAAAAA; /* 데이터 없음 안내 글자색 - 이 색을 바꾸면 업로드된 메일/카톡 없음 문구 색이 바뀜 */
+    font-size: 13px; /* 데이터 없음 안내 글자 크기 - 숫자가 크면 안내 문구가 커짐 */
+}
+
+/* 메모 작성 팝업 메모 목록이 비었을 때 보이는 안내 문구입니다. */
+#memoListPlaceholder {
+    color: #AAAAAA; /* 메모 없음 안내 글자색 - 이 색을 바꾸면 작성된 메모 없음 문구 색이 바뀜 */
+    font-size: 13px; /* 메모 없음 안내 글자 크기 - 숫자가 크면 안내 문구가 커짐 */
+    background: transparent; /* 메모 없음 안내 배경 - transparent는 배경을 투명하게 함 */
+}
+
+/* 메모 작성 팝업 메모 목록 안의 메모 제목/날짜 라벨입니다. */
+#memoListItemLabel {
+    background: transparent; /* 메모 항목 라벨 배경 - transparent는 배경을 투명하게 함 */
+    padding: 4px 8px; /* 메모 항목 라벨 안쪽 여백 - 숫자가 크면 항목 내부 공간이 넓어짐 */
+}

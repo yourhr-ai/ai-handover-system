@@ -1,0 +1,13 @@
+{
+  "chunk-000000": {
+    "source_path": "mail.eml",
+    "file_name": "메일: 인수인계",
+    "modified_at": "2026-07-03T10:00:00"
+  },
+  "chunk-000001": {
+    "source_path": "mail.eml::attachment::첨부.hwp",
+    "file_name": "첨부.hwp",
+    "modified_at": "2026-07-03T10:00:00",
+    "extraction_status": "unsupported_format"
+  }
+}

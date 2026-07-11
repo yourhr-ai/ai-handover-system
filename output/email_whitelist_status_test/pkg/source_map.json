@@ -1,0 +1,13 @@
+{
+  "chunk-000000": {
+    "source_path": "mail.eml",
+    "file_name": "메일: ???? ??",
+    "modified_at": "now"
+  },
+  "chunk-000001": {
+    "source_path": "mail.eml::attachment::attach.hwp",
+    "file_name": "???? ??의 첨부파일: attach.hwp",
+    "modified_at": "now",
+    "extraction_status": "not_in_whitelist"
+  }
+}

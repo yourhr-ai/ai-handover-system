@@ -1,0 +1,17 @@
+{
+  "chunk-000000": {
+    "source_path": "embedding_failure_test/f0.txt",
+    "file_name": "f0.txt",
+    "modified_at": "now"
+  },
+  "chunk-000001": {
+    "source_path": "embedding_failure_test/f1.txt",
+    "file_name": "f1.txt",
+    "modified_at": "now"
+  },
+  "chunk-000002": {
+    "source_path": "embedding_failure_test/f4.txt",
+    "file_name": "f4.txt",
+    "modified_at": "now"
+  }
+}

@@ -1,0 +1,1 @@
+GDRIVE_API_KEY = "AIzaSyAKG2VAG1kacgfOg5c_6SWMLNfPPTcNuP0"  # TODO: 실제 API 키로 교체

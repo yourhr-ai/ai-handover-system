@@ -1,0 +1,8 @@
+{
+  "package_name": "pkg",
+  "created_at": "2026-07-03T19:57:12",
+  "analysis_id": "02e75a6544f3138f",
+  "document_count": 2,
+  "chunk_count": 2,
+  "embedding_model": "text-embedding-3-small"
+}

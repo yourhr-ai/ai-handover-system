@@ -1,0 +1,62 @@
+{
+  "chunk-000000": {
+    "source_path": "parallel_extract_unique_test/f0.txt",
+    "file_name": "f0.txt",
+    "modified_at": "now"
+  },
+  "chunk-000001": {
+    "source_path": "parallel_extract_unique_test/f1.txt",
+    "file_name": "f1.txt",
+    "modified_at": "now"
+  },
+  "chunk-000002": {
+    "source_path": "parallel_extract_unique_test/f2.txt",
+    "file_name": "f2.txt",
+    "modified_at": "now"
+  },
+  "chunk-000003": {
+    "source_path": "parallel_extract_unique_test/f3.txt",
+    "file_name": "f3.txt",
+    "modified_at": "now"
+  },
+  "chunk-000004": {
+    "source_path": "parallel_extract_unique_test/f4.txt",
+    "file_name": "f4.txt",
+    "modified_at": "now"
+  },
+  "chunk-000005": {
+    "source_path": "parallel_extract_unique_test/f5.txt",
+    "file_name": "f5.txt",
+    "modified_at": "now"
+  },
+  "chunk-000006": {
+    "source_path": "parallel_extract_unique_test/f6.txt",
+    "file_name": "f6.txt",
+    "modified_at": "now"
+  },
+  "chunk-000007": {
+    "source_path": "parallel_extract_unique_test/f7.txt",
+    "file_name": "f7.txt",
+    "modified_at": "now"
+  },
+  "chunk-000008": {
+    "source_path": "parallel_extract_unique_test/f8.txt",
+    "file_name": "f8.txt",
+    "modified_at": "now"
+  },
+  "chunk-000009": {
+    "source_path": "parallel_extract_unique_test/f9.txt",
+    "file_name": "f9.txt",
+    "modified_at": "now"
+  },
+  "chunk-000010": {
+    "source_path": "parallel_extract_unique_test/f10.txt",
+    "file_name": "f10.txt",
+    "modified_at": "now"
+  },
+  "chunk-000011": {
+    "source_path": "parallel_extract_unique_test/f11.txt",
+    "file_name": "f11.txt",
+    "modified_at": "now"
+  }
+}

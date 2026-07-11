@@ -1,0 +1,68 @@
+[
+  {
+    "file_name": "f0.txt",
+    "relative_path": "parallel_extract_test/f0.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f1.txt",
+    "relative_path": "parallel_extract_test/f1.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f2.txt",
+    "relative_path": "parallel_extract_test/f2.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f3.txt",
+    "relative_path": "parallel_extract_test/f3.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f4.txt",
+    "relative_path": "parallel_extract_test/f4.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f5.txt",
+    "relative_path": "parallel_extract_test/f5.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f6.txt",
+    "relative_path": "parallel_extract_test/f6.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f7.txt",
+    "relative_path": "parallel_extract_test/f7.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f8.txt",
+    "relative_path": "parallel_extract_test/f8.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f9.txt",
+    "relative_path": "parallel_extract_test/f9.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  },
+  {
+    "file_name": "f10.txt",
+    "relative_path": "parallel_extract_test/f10.txt",
+    "modified_at": "now",
+    "reason": "duplicate_content"
+  }
+]

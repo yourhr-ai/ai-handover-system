@@ -1,0 +1,200 @@
+{
+  "analyzed_at": "2026-07-11T12:00:00",
+  "analysismode": "basic",
+  "root_folder_path": "output\\recent-files-separation-test",
+  "root_summary": {
+    "total_folder_count": 1,
+    "total_file_count": 7,
+    "total_size_bytes": 10600,
+    "modified_within_7_days_count": 0,
+    "modified_within_30_days_count": 0,
+    "modified_within_90_days_count": 7
+  },
+  "error_count": 0,
+  "handover_qa": {
+    "answers": [
+      "One answer",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "updatedat": "2026-07-11T09:00:34"
+  },
+  "memos": [
+    {
+      "title": "Mixed files",
+      "content": "Check recent files",
+      "createdat": "2026-07-11T09:00:34",
+      "updatedat": "2026-07-11T09:00:34",
+      "linked_folders": [
+        "work"
+      ],
+      "linked_files": [],
+      "linked_emails": [],
+      "linked_kakao_files": [],
+      "linked_folder_stats": [
+        {
+          "relative_path": "work",
+          "source_1depth_relative_path": "work",
+          "file_count": 7,
+          "total_size_bytes": 10600,
+          "extension_counts": {
+            ".docx": 1,
+            ".exe": 1,
+            ".jpg": 1,
+            ".pdf": 1,
+            ".png": 1,
+            ".txt": 1,
+            ".zip": 1
+          },
+          "modified_within_7_days_count": 0,
+          "modified_within_30_days_count": 0,
+          "modified_within_90_days_count": 7
+        }
+      ],
+      "priorityfilesbytopfolder": {
+        "work": [
+          {
+            "file_name": "new_image.png",
+            "relative_path": "work/new_image.png",
+            "modified_at": "2026-05-29 05:38:20"
+          },
+          {
+            "file_name": "new_archive.zip",
+            "relative_path": "work/new_archive.zip",
+            "modified_at": "2026-05-29 05:36:40"
+          },
+          {
+            "file_name": "new_program.exe",
+            "relative_path": "work/new_program.exe",
+            "modified_at": "2026-05-29 05:35:50"
+          },
+          {
+            "file_name": "new_notes.txt",
+            "relative_path": "work/new_notes.txt",
+            "modified_at": "2026-05-29 05:35:00"
+          },
+          {
+            "file_name": "old_document_2.pdf",
+            "relative_path": "work/old_document_2.pdf",
+            "modified_at": "2026-05-29 05:30:00"
+          }
+        ]
+      }
+    }
+  ],
+  "sharedfolders": {},
+  "unlinkedfolders": [],
+  "child_folders": [
+    {
+      "folder_name": "work",
+      "relative_path": "work",
+      "summary": {
+        "total_folder_count": 0,
+        "total_file_count": 7,
+        "total_size_bytes": 10600,
+        "modified_within_30_days_count": 0
+      },
+      "recent_modified_files": [
+        {
+          "file_name": "new_image.png",
+          "relative_path": "work/new_image.png",
+          "modified_at": "2026-05-29 05:38:20"
+        },
+        {
+          "file_name": "new_image_2.jpg",
+          "relative_path": "work/new_image_2.jpg",
+          "modified_at": "2026-05-29 05:37:30"
+        },
+        {
+          "file_name": "new_archive.zip",
+          "relative_path": "work/new_archive.zip",
+          "modified_at": "2026-05-29 05:36:40"
+        },
+        {
+          "file_name": "new_program.exe",
+          "relative_path": "work/new_program.exe",
+          "modified_at": "2026-05-29 05:35:50"
+        },
+        {
+          "file_name": "new_notes.txt",
+          "relative_path": "work/new_notes.txt",
+          "modified_at": "2026-05-29 05:35:00"
+        },
+        {
+          "file_name": "old_document_2.pdf",
+          "relative_path": "work/old_document_2.pdf",
+          "modified_at": "2026-05-29 05:30:00"
+        },
+        {
+          "file_name": "old_document.docx",
+          "relative_path": "work/old_document.docx",
+          "modified_at": "2026-05-29 05:28:20"
+        }
+      ],
+      "extension_stats": [
+        {
+          "extension": ".docx",
+          "file_count": 1
+        },
+        {
+          "extension": ".exe",
+          "file_count": 1
+        },
+        {
+          "extension": ".jpg",
+          "file_count": 1
+        },
+        {
+          "extension": ".pdf",
+          "file_count": 1
+        },
+        {
+          "extension": ".png",
+          "file_count": 1
+        },
+        {
+          "extension": ".txt",
+          "file_count": 1
+        },
+        {
+          "extension": ".zip",
+          "file_count": 1
+        }
+      ],
+      "priority_review_file_candidates": [
+        {
+          "file_name": "old_document_2.pdf",
+          "relative_path": "work/old_document_2.pdf",
+          "modified_at": "2026-05-29 05:30:00",
+          "size_bytes": 1800
+        },
+        {
+          "file_name": "old_document.docx",
+          "relative_path": "work/old_document.docx",
+          "modified_at": "2026-05-29 05:28:20",
+          "size_bytes": 1700
+        },
+        {
+          "file_name": "new_image.png",
+          "relative_path": "work/new_image.png",
+          "modified_at": "2026-05-29 05:38:20",
+          "size_bytes": 1300
+        },
+        {
+          "file_name": "new_image_2.jpg",
+          "relative_path": "work/new_image_2.jpg",
+          "modified_at": "2026-05-29 05:37:30",
+          "size_bytes": 1500
+        },
+        {
+          "file_name": "new_archive.zip",
+          "relative_path": "work/new_archive.zip",
+          "modified_at": "2026-05-29 05:36:40",
+          "size_bytes": 1500
+        }
+      ]
+    }
+  ]
+}

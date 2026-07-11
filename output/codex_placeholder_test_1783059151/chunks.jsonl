@@ -1,0 +1,2 @@
+{"chunk_id": "chunk-000000", "source_file": "mail.eml", "chunk_text": "발신자: \n발송일시: 2026-07-03T10:00:00\n제목: 인수인계", "embedding": [0.0]}
+{"chunk_id": "chunk-000001", "source_file": "mail.eml::attachment::첨부.hwp", "chunk_text": "[파일명: 첨부.hwp] 이 파일은 자동으로 내용을 읽을 수 없는 형식(예: hwp)입니다. 제목을 참고하시고, 세부 내용은 원본 파일을 직접 확인하세요. 원본 경로: mail.eml::attachment::첨부.hwp, 수정일시: 2026-07-03T10:00:00", "embedding": [0.0]}

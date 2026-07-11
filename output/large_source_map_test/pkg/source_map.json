@@ -1,0 +1,8 @@
+{
+  "chunk-000000": {
+    "source_path": "large_source_map_test/large.xlsx",
+    "file_name": "large.xlsx",
+    "modified_at": "now",
+    "extraction_status": "skipped_large_file"
+  }
+}

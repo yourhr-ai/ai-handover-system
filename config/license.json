@@ -1,0 +1,15 @@
+{
+  "license_code": "PENDING-006-Y1-5C98D1E2",
+  "first_use_records": {
+    "PENDING-005-Y1-4D4178B3": {
+      "first_used_at": "2026-07-10T15:57:53",
+      "expiry_at": "2027-07-10T15:57:53",
+      "checksum": "af31fe82"
+    },
+    "PENDING-006-Y1-5C98D1E2": {
+      "first_used_at": "2026-07-10T16:01:15",
+      "expiry_at": "2027-07-10T16:01:15",
+      "checksum": "2a2cd0a4"
+    }
+  }
+}

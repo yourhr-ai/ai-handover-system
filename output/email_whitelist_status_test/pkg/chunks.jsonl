@@ -1,0 +1,2 @@
+{"chunk_id": "chunk-000000", "source_file": "mail.eml", "chunk_text": "발신자: \n발송일시: now\n제목: ???? ??\n\n??", "embedding": [0.0]}
+{"chunk_id": "chunk-000001", "source_file": "mail.eml::attachment::attach.hwp", "chunk_text": "[파일명: ???? ??의 첨부파일: attach.hwp] 이 파일은 지원 대상이 아니라 내용을 자동으로 읽지 않았습니다. 제목을 참고하시고, 세부 내용은 원본 파일을 직접 확인하세요. 원본 경로: mail.eml::attachment::attach.hwp, 수정일시: now", "embedding": [0.0]}
