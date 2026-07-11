@@ -465,7 +465,7 @@ def _add_ai_key_contacts_table(document: Document, contacts: list[dict]) -> None
 
 
 def _set_ai_key_contacts_table_column_widths(table: Any) -> None:
-    widths = [Cm(2.5), Cm(4), Cm(2.3), Cm(2.3), Cm(2.3)]
+    widths = [Cm(2.5), Cm(4), Cm(2.98), Cm(2.98), Cm(2.98)]
     _set_table_grid_column_widths(table, widths)
     name_header = table.cell(0, 0)
     contact_header = table.cell(0, 1)
@@ -651,6 +651,7 @@ def _add_recent_emails_section(
     emails = _get_linked_parsed_emails(memo, parsed_emails)
     emails_sorted = sorted(emails, key=lambda e: e.get("date") or "", reverse=True)
     top = emails_sorted[:_RECENT_EMAIL_LIMIT]
+    document.add_paragraph()
     _add_manual_heading(document, "가장 최근 메일 5개", font_size=13, space_before=12)
     table = document.add_table(rows=1, cols=3)
     table.autofit = False
@@ -704,6 +705,7 @@ def _add_recent_kakao_section(document: Document, memo: WorkMemo) -> None:
         return
     messages_sorted = sorted(messages, key=_kakao_datetime_sort_key, reverse=True)
     top = messages_sorted[:_RECENT_KAKAO_LIMIT]
+    document.add_paragraph()
     _add_manual_heading(
         document, "가장 최근 대화 목록 5개", font_size=13, space_before=12
     )
