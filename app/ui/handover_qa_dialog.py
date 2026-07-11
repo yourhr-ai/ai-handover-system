@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QFont, QTextOption
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
+    QPushButton,
     QRadioButton,
     QVBoxLayout,
     QWidget,
@@ -42,6 +43,11 @@ class HandoverQADialog(QDialog):
             self.category_buttons.append(button)
             category_row.addWidget(button)
         category_row.addStretch()
+        self.save_status_label = QLabel("")
+        self.save_status_label.setObjectName("handoverSaveStatusLabel")
+        category_row.addWidget(self.save_status_label)
+        self.save_button = QPushButton("저장")
+        category_row.addWidget(self.save_button)
 
         self.question_label = QLabel()
         question_font = QFont(self.question_label.font())
@@ -67,6 +73,7 @@ class HandoverQADialog(QDialog):
 
         self._ensure_answer_slots()
         self.category_group.idClicked.connect(self._select_category)
+        self.save_button.clicked.connect(self._save_with_confirmation)
         self.category_buttons[0].setChecked(True)
         self._load_question()
 
@@ -85,6 +92,11 @@ class HandoverQADialog(QDialog):
         if self.handover_qa.answers[self.current_index] != answer:
             self.handover_qa.answers[self.current_index] = answer
             self.handover_qa.updatedat = datetime.now().isoformat(timespec="seconds")
+
+    def _save_with_confirmation(self) -> None:
+        self._save_current_answer()
+        self.save_status_label.setText("저장됨")
+        QTimer.singleShot(1500, self.save_status_label.clear)
 
     def _select_category(self, index: int) -> None:
         if index == self.current_index:

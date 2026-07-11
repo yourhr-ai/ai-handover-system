@@ -315,6 +315,7 @@ def _add_handover_qa_section(
     if not answered_questions:
         return
 
+    document.add_paragraph()
     _add_manual_heading(document, "주요사항", font_size=16, space_before=18)
     for question, answer in answered_questions:
         _add_manual_heading(
@@ -385,6 +386,7 @@ def _add_memo_block(
     analysismode: str,
     parsed_emails: list[dict] | None = None,
 ) -> None:
+    document.add_paragraph()
     _add_manual_heading(document, memo.title, font_size=16, space_before=18)
     document.add_paragraph(memo.content)
 
@@ -431,14 +433,15 @@ def _add_ai_result_sections(document: Document, memo: WorkMemo) -> None:
         return
 
     _add_manual_heading(document, "현황", font_size=13, space_before=12)
-    document.add_paragraph(ai_result.get("status_summary", ""))
+    _add_paragraph_with_source_text(document, ai_result.get("status_summary", ""))
 
     email_summary = str(ai_result.get("email_summary", "")).strip()
     if memo.linked_emails:
         _add_manual_heading(
             document, "메일에서 확인된 내용", font_size=13, space_before=12
         )
-        document.add_paragraph(
+        _add_paragraph_with_source_text(
+            document,
             email_summary
             or "선택된 메일에서 이 업무와 직접 관련된 내용은 확인되지 않습니다."
         )
@@ -448,7 +451,8 @@ def _add_ai_result_sections(document: Document, memo: WorkMemo) -> None:
         _add_manual_heading(
             document, "메신저(카톡)에서 확인된 사항", font_size=13, space_before=12
         )
-        document.add_paragraph(
+        _add_paragraph_with_source_text(
+            document,
             kakao_summary
             or "선택된 대화에서 이 업무와 직접 관련된 내용은 확인되지 않습니다."
         )
@@ -594,7 +598,32 @@ def _add_markdown_bullet_list(document: Document, bullet_items: str | list) -> N
         if stripped_item.startswith("- ") or stripped_item.startswith("* "):
             stripped_item = stripped_item[2:].strip()
         if stripped_item:
-            document.add_paragraph(stripped_item, style="List Bullet")
+            _add_paragraph_with_source_text(
+                document, stripped_item, style="List Bullet"
+            )
+
+
+_SOURCE_TEXT_PATTERN = re.compile(r"\(출처:[^)]*\)")
+
+
+def _add_paragraph_with_source_text(
+    document: Document,
+    text: object,
+    style: str | None = None,
+) -> None:
+    paragraph = document.add_paragraph(style=style)
+    source_text = str(text or "")
+    cursor = 0
+    for match in _SOURCE_TEXT_PATTERN.finditer(source_text):
+        if match.start() > cursor:
+            run = paragraph.add_run(source_text[cursor : match.start()])
+            run.font.size = Pt(11)
+        source_run = paragraph.add_run(match.group())
+        source_run.font.size = Pt(9)
+        cursor = match.end()
+    if cursor < len(source_text):
+        run = paragraph.add_run(source_text[cursor:])
+        run.font.size = Pt(11)
 
 
 
@@ -958,20 +987,20 @@ def _add_file_location_table(
 def _add_end_of_document_page(document: Document) -> None:
     document.add_section(WD_SECTION_START.NEW_PAGE)
     _set_section_vertical_alignment_center(document.sections[-1])
-    brand_paragraph = document.add_paragraph()
-    brand_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    brand_run = brand_paragraph.add_run(
-        "본 문서는 yourHR 대표님의 인사담당자의 AI 인수인계 시스템으로 작성되었습니다."
-    )
-    brand_run.font.size = Pt(9)
-    brand_run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
-
     paragraph = document.add_paragraph()
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = paragraph.add_run("END OF DOCUMENT")
     run.font.size = Pt(25)
     run.font.name = "맑은 고딕"
     run._element.rPr.rFonts.set(qn("w:eastAsia"), "맑은 고딕")
+
+    brand_paragraph = document.add_paragraph()
+    brand_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    brand_run = brand_paragraph.add_run(
+        "본 문서는 [대표님의 인사담당자의 인수인계 10분]으로 작성되었습니다."
+    )
+    brand_run.font.size = Pt(9)
+    brand_run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
 
 
 def _get_files_for_linked_folders(

@@ -439,23 +439,22 @@ class MemoDialog(QDialog):
     def _populate_email_tree(self) -> None:
         self.email_tree_widget.clear()
         for email in self.parsed_emails:
-            self.email_tree_widget.addTopLevelItem(
-                self._create_simple_checkable_item(
-                    email.get("source_file", ""),
-                    self._format_email_display_text(email),
-                )
+            item = self._create_simple_checkable_item(
+                email.get("source_file", ""),
+                self._format_email_display_text(email),
             )
+            item.setToolTip(0, str(email.get("subject") or "(제목 없음)"))
+            self.email_tree_widget.addTopLevelItem(item)
 
         has_emails = bool(self.parsed_emails)
         self.email_tree_frame.setVisible(has_emails)
         self.email_empty_label.setVisible(not has_emails)
 
     def _format_email_display_text(self, email: dict) -> str:
-        date = email.get("date") or ""
-        sender = email.get("sender") or ""
-        subject = email.get("subject") or "(제목 없음)"
-        prefix = f"[{date}] " if date else ""
-        return f"{prefix}{sender} - {subject}" if sender else f"{prefix}{subject}"
+        date = str(email.get("date") or "")[:10]
+        subject = str(email.get("subject") or "(제목 없음)")
+        abbreviated_subject = f"{subject[:10]}..." if len(subject) > 10 else subject
+        return f"{abbreviated_subject} · {date}" if date else abbreviated_subject
 
     def _populate_kakao_tree(self) -> None:
         self.kakao_tree_widget.clear()
@@ -924,7 +923,7 @@ class MemoDialog(QDialog):
         QMessageBox.warning(
             self,
             "인수인계서 저장",
-            "질문에 답변을 최소 1개 이상 작성해 주세요.",
+            "알려주세요에서 질문에 답변해 주세요.",
         )
         self._open_handover_qa()
         return False

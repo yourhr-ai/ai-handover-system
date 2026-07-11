@@ -2,13 +2,13 @@
 # any one of the five answers rather than validating individual questions.
 HANDOVER_QUESTIONS = [
     {
-        "title": "후임자가 인수인계 직후 가장 먼저 해야 할 일은 무엇인가요?",
+        "title": "인수인계 직후 가장 먼저 해야 할 일은 무엇인가요?",
         "category_label": "최우선 처리",
         "placeholder": "① A사 수정 견적서를 금요일까지 발송\n② 7월 급여자료를 세무사에게 전달\n③ 다음 주 회의 전에 매출자료 업데이트",
         "required": True,
     },
     {
-        "title": "후임자가 실수하지 않으려면 반드시 주의해야 할 것은 무엇인가요?",
+        "title": "일을 하면서 실수하지 않으려면 반드시 주의해야 할 것은 무엇인가요?",
         "category_label": "주의사항",
         "placeholder": "① A사에는 가격표를 바로 보내지 말고 팀장 확인 후 전달\n② 월말 자료는 수식이 깨질 수 있으므로 값만 붙여넣으면 안 됨\n③ 대표 승인 전에는 고객에게 일정을 확정해서 안내하면 안 됨",
         "required": True,
@@ -26,7 +26,7 @@ HANDOVER_QUESTIONS = [
         "required": True,
     },
     {
-        "title": "기타 후임자가 알아야 할 내용을 작성해 주세요.",
+        "title": "기타 알아야 할 내용을 작성해 주세요.",
         "category_label": "기타",
         "placeholder": "",
         "required": False,
