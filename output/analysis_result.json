@@ -1,92 +1,247 @@
 {
-  "analyzed_at": "2026-07-11T10:25:19",
-  "analysismode": "basic",
-  "root_folder_path": "C:/dev/handover-analyzer-mvp1/config",
+  "analyzed_at": "2026-07-11T10:42:51",
+  "analysismode": "ai",
+  "root_folder_path": "C:/Users/조두형/Desktop/크몽",
   "root_summary": {
-    "total_folder_count": 0,
-    "total_file_count": 3,
-    "total_size_bytes": 652,
-    "modified_within_7_days_count": 3,
-    "modified_within_30_days_count": 3,
-    "modified_within_90_days_count": 3
+    "total_folder_count": 500,
+    "total_file_count": 2930,
+    "total_size_bytes": 1917767674,
+    "modified_within_7_days_count": 11,
+    "modified_within_30_days_count": 109,
+    "modified_within_90_days_count": 216
   },
   "error_count": 0,
   "handover_qa": {
     "answers": [
+      "ㄷㄷㄷㄷ",
       "",
       "",
-      "",
-      "",
+      "ㄷㄷㄷㄷ",
       ""
     ],
-    "updatedat": "2026-07-11T10:25:19"
+    "updatedat": "2026-07-11T10:43:21"
   },
-  "memos": [],
-  "sharedfolders": {},
-  "unlinkedfolders": [
+  "memos": [
     {
-      "folder_name": "config",
-      "relative_path": "config",
-      "file_count": 3,
-      "modified_within_30_days_count": 3,
-      "modified_within_90_days_count": 3
+      "title": "11",
+      "content": "11",
+      "createdat": "2026-07-11T10:40:37",
+      "updatedat": "2026-07-11T10:43:23",
+      "linked_folders": [
+        "크몽"
+      ],
+      "linked_files": [],
+      "linked_emails": [
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260421_158515_대표님의 인사담당자 (대표님의 인사담당자-_더코랩 유한회사).eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260507_158781_[국민비서] 회원님께 도착한 전자문서를 확인하세요..eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260510_158815_[퍼블리] 2026년 4월 정산 및 세금계산서 발행 안내 (2026년 5월 입금).eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260514_158879_한국관광협회중앙회 계약규정 최종수정사항 요청.eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260519_158948_(광고)📌[HR뉴스레터 18회차]_직무(Job)의 해체_ 왜 우리는 _스킬_로 조직을 재....eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260601_159139_(주식회사 팀매버릭스-_조두형).eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260609_159285_장기보험 보험료 납입현황 안내(조_형 고객님).eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260616_159403_(광고) HR DIVE _ 회사 분위기 좋은데, 왜 평가를 도입했을까_.eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260617_159432_[와이페이모어] 고객님의 국내항공권 예약정보(FRXBA3) 입니다..eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260623_159529_(광고) HR DIVE _ _신입 안 뽑습니다_ 인담자가 공감할 이유.eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260627_159608_[Primer] 배치 29기·크리에이터 이코노미 파운더 2기, 신청 마감 D-1 안내.eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260630_159662_(광고) HR DIVE _ 팀원의 성장을 꺾는 리더의 말버릇.eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260708_159816_Action required_ security vulnerabilities detected....eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260710_159866_FW_ 동우국제 - 평가 공지 등.eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260710_159870_[퍼블리] 2026년 6월 정산 및 세금계산서 발행 안내 (2026년 7월 입금).eml",
+        "C:/Users/조두형/Downloads/이메일백업테스트.zip::20260710_159874_[롯데카드] 조두형회원님께서 요청하신 롯데카드 매출실적입니다..eml"
+      ],
+      "linked_kakao_files": [
+        "C:/Users/조두형/Downloads/KakaoTalk_20260627_2155_35_701_조두형.txt"
+      ],
+      "linked_folder_stats": [
+        {
+          "relative_path": "크몽",
+          "source_1depth_relative_path": "크몽",
+          "file_count": 2930,
+          "total_size_bytes": 1917767674,
+          "extension_counts": {
+            ".xlsx": 952,
+            ".pdf": 864,
+            ".docx": 305,
+            ".pptx": 230,
+            ".hwp": 208,
+            ".jpg": 103,
+            ".xls": 77,
+            ".doc": 62,
+            ".zip": 43,
+            ".png": 35
+          },
+          "modified_within_7_days_count": 11,
+          "modified_within_30_days_count": 109,
+          "modified_within_90_days_count": 216
+        }
+      ],
+      "priorityfilesbytopfolder": {
+        "크몽": [
+          {
+            "file_name": "평가시스템 직원 비번.xlsx",
+            "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/평가시스템 직원 비번.xlsx",
+            "modified_at": "2026-07-10 08:39:12"
+          },
+          {
+            "file_name": "동우국제 평가제도 2차 설명회.pptx",
+            "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/동우국제 평가제도 2차 설명회.pptx",
+            "modified_at": "2026-07-09 11:23:49"
+          },
+          {
+            "file_name": "2026년 상반기 성과평가 시행 안내_20260709.docx",
+            "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/2026년 상반기 성과평가 시행 안내_20260709.docx",
+            "modified_at": "2026-07-08 17:41:56"
+          },
+          {
+            "file_name": "규정개정(안)정리_20260708.hwp",
+            "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/규정개정(안)정리_20260708.hwp",
+            "modified_at": "2026-07-08 14:02:27"
+          },
+          {
+            "file_name": "1.6 한국관광협회중앙회_인사규정(검토,작성)_20260520.hwp",
+            "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/1.6 한국관광협회중앙회_인사규정(검토,작성)_20260520.hwp",
+            "modified_at": "2026-07-07 15:05:02"
+          }
+        ]
+      }
     }
   ],
+  "sharedfolders": {},
+  "unlinkedfolders": [],
   "child_folders": [
     {
-      "folder_name": "config",
-      "relative_path": "config",
+      "folder_name": "크몽",
+      "relative_path": "크몽",
       "summary": {
-        "total_folder_count": 0,
-        "total_file_count": 3,
-        "total_size_bytes": 652,
-        "modified_within_30_days_count": 3
+        "total_folder_count": 500,
+        "total_file_count": 2930,
+        "total_size_bytes": 1917767674,
+        "modified_within_30_days_count": 109
       },
       "recent_modified_files": [
         {
-          "file_name": "license.json",
-          "relative_path": "config/license.json",
-          "modified_at": "2026-07-11 09:09:33"
+          "file_name": "평가시스템 직원 비번.xlsx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/평가시스템 직원 비번.xlsx",
+          "modified_at": "2026-07-10 08:39:12"
         },
         {
-          "file_name": "last_seen_date.dat",
-          "relative_path": "config/last_seen_date.dat",
-          "modified_at": "2026-07-11 09:09:33"
+          "file_name": "동우국제 평가제도 2차 설명회.pptx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/동우국제 평가제도 2차 설명회.pptx",
+          "modified_at": "2026-07-09 11:23:49"
         },
         {
-          "file_name": "api_key.dat",
-          "relative_path": "config/api_key.dat",
-          "modified_at": "2026-07-11 09:09:33"
+          "file_name": "2026년 상반기 성과평가 시행 안내_20260709.docx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/2026년 상반기 성과평가 시행 안내_20260709.docx",
+          "modified_at": "2026-07-08 17:41:56"
+        },
+        {
+          "file_name": "2026년 상반기 성과평가 시행 안내_20260627.docx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/2026년 상반기 성과평가 시행 안내_20260627.docx",
+          "modified_at": "2026-07-08 17:40:21"
+        },
+        {
+          "file_name": "규정개정(안)정리_20260708.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/규정개정(안)정리_20260708.hwp",
+          "modified_at": "2026-07-08 14:02:27"
+        },
+        {
+          "file_name": "1.6 한국관광협회중앙회_인사규정(검토,작성)_20260520.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/1.6 한국관광협회중앙회_인사규정(검토,작성)_20260520.hwp",
+          "modified_at": "2026-07-07 15:05:02"
+        },
+        {
+          "file_name": "주식회사 온성 인사자문견적서_v1.0.pdf",
+          "relative_path": "크몽/2026년 7월 온성/주식회사 온성 인사자문견적서_v1.0.pdf",
+          "modified_at": "2026-07-07 11:29:41"
+        },
+        {
+          "file_name": "주식회사 온성 인사자문견적서_v1.0.xlsx",
+          "relative_path": "크몽/2026년 7월 온성/주식회사 온성 인사자문견적서_v1.0.xlsx",
+          "modified_at": "2026-07-07 11:29:06"
+        },
+        {
+          "file_name": "규정개정(안)정리_20260707.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/규정개정(안)정리_20260707.hwp",
+          "modified_at": "2026-07-07 08:46:34"
+        },
+        {
+          "file_name": "10. 팀장 R&R, 소통활동 가이드.docx",
+          "relative_path": "크몽/2026년 6월 채움세무법인/결과물/10. 팀장 R&R, 소통활동 가이드.docx",
+          "modified_at": "2026-07-06 12:53:17"
         }
       ],
       "extension_stats": [
         {
-          "extension": ".dat",
-          "file_count": 2
+          "extension": ".xlsx",
+          "file_count": 952
         },
         {
-          "extension": ".json",
-          "file_count": 1
+          "extension": ".pdf",
+          "file_count": 864
+        },
+        {
+          "extension": ".docx",
+          "file_count": 305
+        },
+        {
+          "extension": ".pptx",
+          "file_count": 230
+        },
+        {
+          "extension": ".hwp",
+          "file_count": 208
+        },
+        {
+          "extension": ".jpg",
+          "file_count": 103
+        },
+        {
+          "extension": ".xls",
+          "file_count": 77
+        },
+        {
+          "extension": ".doc",
+          "file_count": 62
+        },
+        {
+          "extension": ".zip",
+          "file_count": 43
+        },
+        {
+          "extension": ".png",
+          "file_count": 35
         }
       ],
       "priority_review_file_candidates": [
         {
-          "file_name": "license.json",
-          "relative_path": "config/license.json",
-          "modified_at": "2026-07-11 09:09:33",
-          "size_bytes": 404
+          "file_name": "평가시스템 직원 비번.xlsx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/평가시스템 직원 비번.xlsx",
+          "modified_at": "2026-07-10 08:39:12",
+          "size_bytes": 14817
         },
         {
-          "file_name": "last_seen_date.dat",
-          "relative_path": "config/last_seen_date.dat",
-          "modified_at": "2026-07-11 09:09:33",
-          "size_bytes": 28
+          "file_name": "동우국제 평가제도 2차 설명회.pptx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/동우국제 평가제도 2차 설명회.pptx",
+          "modified_at": "2026-07-09 11:23:49",
+          "size_bytes": 458865
         },
         {
-          "file_name": "api_key.dat",
-          "relative_path": "config/api_key.dat",
-          "modified_at": "2026-07-11 09:09:33",
-          "size_bytes": 220
+          "file_name": "2026년 상반기 성과평가 시행 안내_20260709.docx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/2026년 상반기 성과평가 시행 안내_20260709.docx",
+          "modified_at": "2026-07-08 17:41:56",
+          "size_bytes": 25534
+        },
+        {
+          "file_name": "2026년 상반기 성과평가 시행 안내_20260627.docx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/2026년 상반기 성과평가 시행 안내_20260627.docx",
+          "modified_at": "2026-07-08 17:40:21",
+          "size_bytes": 25670
+        },
+        {
+          "file_name": "규정개정(안)정리_20260708.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/규정개정(안)정리_20260708.hwp",
+          "modified_at": "2026-07-08 14:02:27",
+          "size_bytes": 140800
         }
       ]
     }

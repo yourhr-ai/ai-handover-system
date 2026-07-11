@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QTabWidget,
@@ -161,9 +160,9 @@ class MemoDialog(QDialog):
         self.complete_button = QPushButton("인수인계서 저장")
         _set_button_role(self.complete_button, "primary")
         self.completion_label = QLabel("")
-        self.completion_progress_bar = QProgressBar()
-        self.completion_progress_bar.setRange(0, 100)
-        self.completion_progress_bar.setTextVisible(False)
+        self.completion_label.setStyleSheet(
+            "color: #2C4A7C; font-weight: 700;"
+        )
         self.status_label = QLabel("")
         self.title_input = QLineEdit()
         self.title_input.setObjectName("memoTitleInput")
@@ -291,6 +290,7 @@ class MemoDialog(QDialog):
         button_bar.addWidget(self.delete_button)
         button_bar.addWidget(self.handover_qa_button)
         button_bar.addWidget(self.complete_button)
+        button_bar.addWidget(self.completion_label)
         button_bar.addStretch()
 
         left_layout = QVBoxLayout()
@@ -359,12 +359,6 @@ class MemoDialog(QDialog):
         content_layout.addWidget(self.related_target_tabs, 30)
 
         main_layout.addLayout(button_bar)
-        main_layout.addSpacing(6)
-        completion_row = QHBoxLayout()
-        completion_row.setSpacing(MEMO_BUTTON_SPACING)
-        completion_row.addWidget(self.completion_label)
-        completion_row.addWidget(self.completion_progress_bar, stretch=1)
-        main_layout.addLayout(completion_row)
         main_layout.addSpacing(6)
         main_layout.addWidget(self.status_label)
         main_layout.addSpacing(6)
@@ -968,8 +962,7 @@ class MemoDialog(QDialog):
 
     def _update_completion_progress(self) -> None:
         percentage = _calculate_completion_percentage(self.memos, self.handover_qa)
-        self.completion_progress_bar.setValue(percentage)
-        self.completion_label.setText(f"인수인계서 완성도 {percentage}%")
+        self.completion_label.setText(f"완성도 {percentage}%")
 
     def _validate_handover_qa(self) -> bool:
         answers = (self.handover_qa.answers + ["", "", "", "", ""])[:5]

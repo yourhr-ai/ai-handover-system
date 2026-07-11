@@ -152,7 +152,12 @@ def save_analysis_result_as_word(
     document.add_page_break()
     _add_manual_heading(document, "문서 통계", font_size=16, space_before=18)
     _add_document_statistics_table(document, result.all_files, analyzed_at)
-    _add_file_activity_statistics(document, result.all_files, analyzed_at)
+    _add_file_activity_statistics(
+        document,
+        result.all_files,
+        result.memos,
+        analyzed_at,
+    )
 
     _add_end_of_document_page(document)
 
@@ -406,9 +411,18 @@ def _add_multiline_paragraph(document: Document, text: str) -> None:
 
 def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
     _add_manual_heading(document, "주요 관계자 및 연락처", font_size=13, space_before=12)
-    table = document.add_table(rows=1, cols=3)
+    table = document.add_table(rows=2, cols=5)
     table.style = "Table Grid"
-    _set_row_cells(table.rows[0], ["이름", "연락 방법", "연락 빈도"])
+    table.autofit = False
+    name_header = table.cell(0, 0).merge(table.cell(1, 0))
+    contact_header = table.cell(0, 1).merge(table.cell(1, 1))
+    frequency_header = table.cell(0, 2).merge(table.cell(0, 4))
+    name_header.text = "이름"
+    contact_header.text = "연락 방법"
+    frequency_header.text = "연락 빈도"
+    table.cell(1, 2).text = "최근 1개월"
+    table.cell(1, 3).text = "최근 3개월"
+    table.cell(1, 4).text = "최근 6개월"
     for contact in contacts:
         row = table.add_row()
         _set_row_cells(
@@ -416,7 +430,9 @@ def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
             [
                 contact["name"],
                 contact["contact"],
-                _format_contact_frequency(contact),
+                contact["freq_1m"],
+                contact["freq_3m"],
+                contact["freq_6m"],
             ],
         )
         if contact.get("is_self_guess", False):
@@ -426,21 +442,37 @@ def _add_key_contacts_table(document: Document, contacts: list[dict]) -> None:
             label_run.font.size = Pt(9)
     if not contacts:
         row = table.add_row()
-        row.cells[0].merge(row.cells[2]).text = "집계할 연락 기록이 없습니다."
+        row.cells[0].merge(row.cells[4]).text = "집계할 연락 기록이 없습니다."
+    _set_key_contacts_table_column_widths(document, table)
     _center_table_cells(table)
 
 
-def _format_contact_frequency(contact: dict) -> str:
-    if not any(
-        str(contact.get(key, ""))
-        for key in ("freq_1m", "freq_3m", "freq_6m")
-    ):
-        return ""
-    return (
-        f"최근 1개월 {contact.get('freq_1m', 0)}건 · "
-        f"3개월 {contact.get('freq_3m', 0)}건 · "
-        f"6개월 {contact.get('freq_6m', 0)}건"
-    )
+def _set_key_contacts_table_column_widths(document: Document, table: Any) -> None:
+    section = document.sections[-1]
+    available_width = section.page_width - section.left_margin - section.right_margin
+    name_width = Cm(2.5)
+    contact_width = (available_width - name_width) // 2
+    frequency_width = (available_width - name_width - contact_width) // 3
+    widths = [
+        name_width,
+        contact_width,
+        frequency_width,
+        frequency_width,
+        available_width
+        - name_width
+        - contact_width
+        - frequency_width * 2,
+    ]
+    _set_table_grid_column_widths(table, widths)
+    name_header = table.cell(0, 0)
+    contact_header = table.cell(0, 1)
+    frequency_header = table.cell(0, 2)
+    name_header.width = widths[0]
+    contact_header.width = widths[1]
+    frequency_header.width = sum(widths[2:])
+    for row in table.rows[2:]:
+        for cell, width in zip(row.cells, widths):
+            cell.width = width
 
 
 def _add_access_rights_checklist(document: Document) -> None:
@@ -1030,8 +1062,10 @@ def _add_document_statistics_table(
 def _add_file_activity_statistics(
     document: Document,
     all_files: list[AnalyzedFile],
+    memos: list[WorkMemo],
     analyzed_at: datetime,
 ) -> None:
+    document.add_paragraph()
     _add_manual_heading(
         document,
         "파일 활동 통계",
@@ -1039,32 +1073,67 @@ def _add_file_activity_statistics(
         space_before=12,
     )
     threshold = analyzed_at.timestamp() - (30 * 24 * 60 * 60)
+    linked_folders = {
+        path.replace("\\", "/").strip("/")
+        for memo in memos
+        for path in memo.linked_folders
+        if path.strip("/\\")
+    }
     activity_counts: Counter[str] = Counter()
     for file in all_files:
         if file.modified_timestamp < threshold:
             continue
-        top_level_folder = file.relative_path.replace("\\", "/").split("/", 1)[0]
-        if top_level_folder:
-            activity_counts[top_level_folder] += 1
+        normalized_path = file.relative_path.replace("\\", "/").strip("/")
+        if "/" not in normalized_path:
+            continue
+        folder_path = normalized_path.rsplit("/", 1)[0]
+        if any(
+            folder_path == linked_folder
+            or folder_path.startswith(f"{linked_folder}/")
+            for linked_folder in linked_folders
+        ):
+            activity_counts[folder_path] += 1
 
     ranked_folders = sorted(
         activity_counts.items(),
         key=lambda item: (-item[1], item[0].casefold()),
-    )[:5]
-    table = document.add_table(rows=6, cols=3)
+    )[:10]
+    table = document.add_table(rows=11, cols=3)
     table.style = "Table Grid"
+    table.autofit = False
     _set_row_cells(
         table.rows[0],
         ["순위", "폴더명", "최근 30일 수정 파일 수"],
     )
-    for row_index in range(1, 6):
+    for row_index in range(1, 11):
         if row_index <= len(ranked_folders):
             folder_name, count = ranked_folders[row_index - 1]
             values = [row_index, folder_name, count]
         else:
             values = ["", "", ""]
         _set_row_cells(table.rows[row_index], values)
+        for run in table.rows[row_index].cells[1].paragraphs[0].runs:
+            run.font.size = Pt(10)
+    _set_file_activity_table_column_widths(document, table)
     _center_table_cells(table)
+
+
+def _set_file_activity_table_column_widths(document: Document, table: Any) -> None:
+    section = document.sections[-1]
+    available_width = section.page_width - section.left_margin - section.right_margin
+    rank_width = Cm(1.5)
+    activity_count_width = available_width // 3
+    folder_width = available_width - rank_width - activity_count_width
+    widths = [rank_width, folder_width, activity_count_width]
+    _set_table_grid_column_widths(table, widths)
+    for row in table.rows:
+        for cell, width in zip(row.cells, widths):
+            cell.width = width
+
+
+def _set_table_grid_column_widths(table: Any, widths: list[Any]) -> None:
+    for column, width in zip(table.columns, widths):
+        column.width = width
 
 
 def _build_extension_group_stats(
