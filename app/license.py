@@ -1,4 +1,5 @@
 import base64
+import calendar
 import hashlib
 import json
 import logging
@@ -250,8 +251,11 @@ def _calculate_expiry_datetime(first_used_at: datetime, unit: str, amount: int) 
             return first_used_at.replace(year=first_used_at.year + amount)
         except ValueError:
             return first_used_at.replace(year=first_used_at.year + amount, day=28)
-    # "M" 단위는 분 단위 테스트 전용 유효기간이다.
-    return first_used_at + timedelta(minutes=amount)
+    target_month_index = first_used_at.month - 1 + amount
+    target_year = first_used_at.year + target_month_index // 12
+    target_month = target_month_index % 12 + 1
+    target_day = min(first_used_at.day, calendar.monthrange(target_year, target_month)[1])
+    return first_used_at.replace(year=target_year, month=target_month, day=target_day)
 
 
 def _resolve_expiry_datetime(license_code: str, unit: str, amount: int) -> datetime | None:
