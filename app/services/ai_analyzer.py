@@ -153,6 +153,10 @@ def analyze_memo_with_ai(
             "email_summary": str(parsed.get("email_summary", "")),
             "kakao_summary": str(parsed.get("kakao_summary", "")),
             "cross_check": parsed.get("cross_check", ""),
+            "_usage": {
+                "prompt_tokens": int(getattr(response.usage, "prompt_tokens", 0) or 0),
+                "completion_tokens": int(getattr(response.usage, "completion_tokens", 0) or 0),
+            },
         }
         print(
             f"[AI분석-인수인계서][DBG3 gpt_result] title={memo.title!r}"

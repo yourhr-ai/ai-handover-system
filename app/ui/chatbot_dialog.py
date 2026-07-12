@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.api_config import load_api_key
+from app.license import load_saved_license_code
+from app.license_credits import consume_credits, precheck_action
 from app.services.package_loader import (
     load_packages_from_folder,
     load_packages_from_gdrive_link,
@@ -62,6 +64,8 @@ class ChatAnswerWorker(QThread):
                 query=self.query,
             )
             answer = generate_answer(self.query, relevant_chunks, self.api_key)
+            usage = answer.setdefault("_usage", {})
+            usage["embedding_tokens"] = int(getattr(query_embedding, "usage_tokens", 0))
         except Exception as exc:
             self.failed.emit(str(exc))
             return
@@ -336,6 +340,14 @@ class ChatbotDialog(QDialog):
             QMessageBox.warning(self, "물어보기", "API 키를 먼저 설정해주세요.")
             return
 
+        license_code = load_saved_license_code() or ""
+        precheck = precheck_action(license_code, "chat")
+        if precheck is not None and precheck.get("allowed") is False:
+            self._add_warning_message(
+                "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요."
+            )
+            return
+
         self._add_user_message(query)
         self.question_input.clear()
         self._set_busy(True)
@@ -369,6 +381,17 @@ class ChatbotDialog(QDialog):
 
         self.status_label.setText("답변 완료")
         self._set_busy(False)
+        usage = result.get("_usage", {})
+        consume_credits(
+            load_saved_license_code() or "",
+            "chat",
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            embedding_tokens=usage.get("embedding_tokens", 0),
+        )
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_refresh_credit_balance"):
+            parent._refresh_credit_balance()
 
     def _handle_answer_error(self, error_message: str) -> None:
         self._remove_pending_answer()

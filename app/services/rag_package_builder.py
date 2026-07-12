@@ -306,7 +306,7 @@ def embed_chunks(
     progress_callback: Callable[[str, int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> list[dict]:
-    embedded, _failures = _embed_chunks_with_failures(
+    embedded, _failures, _embedding_tokens = _embed_chunks_with_failures(
         chunks,
         api_key,
         progress_callback,
@@ -320,17 +320,17 @@ def _embed_chunks_with_failures(
     api_key: str,
     progress_callback: Callable[[str, int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], int]:
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
     batches = _build_embedding_batches(chunks)
     total_batches = len(batches)
     if total_batches == 0:
-        return [], []
+        return [], [], 0
     _raise_if_cancelled(cancel_check)
 
-    def embed_batch(start: int, batch: list[str]) -> list[dict]:
+    def embed_batch(start: int, batch: list[str]) -> tuple[list[dict], int]:
         _raise_if_cancelled(cancel_check)
         if EMBEDDING_REQUEST_DELAY_SECONDS > 0:
             time.sleep(EMBEDDING_REQUEST_DELAY_SECONDS)
@@ -348,10 +348,13 @@ def _embed_chunks_with_failures(
                     "chunk_index": start + offset,
                 }
             )
-        return batch_embedded
+        usage = getattr(response, "usage", None)
+        tokens = int(getattr(usage, "total_tokens", 0) or getattr(usage, "prompt_tokens", 0) or 0)
+        return batch_embedded, tokens
 
     results: list[list[dict] | None] = [None] * total_batches
     failures: list[dict] = []
+    embedding_tokens = 0
     completed_batches = 0
     max_workers = min(EMBEDDING_MAX_WORKERS, total_batches)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -368,7 +371,9 @@ def _embed_chunks_with_failures(
             batch_index = futures[future]
             start, batch = batches[batch_index]
             try:
-                results[batch_index] = future.result()
+                batch_result, batch_tokens = future.result()
+                results[batch_index] = batch_result
+                embedding_tokens += batch_tokens
             except Exception as exc:
                 error_message = f"{type(exc).__name__}: {exc}"
                 for offset, chunk_text in enumerate(batch):
@@ -389,7 +394,7 @@ def _embed_chunks_with_failures(
     for batch_result in results:
         if batch_result:
             embedded.extend(batch_result)
-    return embedded, failures
+    return embedded, failures, embedding_tokens
 
 
 def _build_embedding_batches(chunks: list[str]) -> list[tuple[int, list[str]]]:
@@ -740,7 +745,7 @@ def build_and_save_rag_package(
                 }
             )
 
-    embedded, embedding_failures = _embed_chunk_records(
+    embedded, embedding_failures, embedding_tokens = _embed_chunk_records(
         chunk_records,
         api_key,
         progress_callback,
@@ -764,6 +769,7 @@ def build_and_save_rag_package(
     )
     return {
         "embedding_failed_chunk_count": len(embedding_failures),
+        "embedding_tokens": embedding_tokens,
         "saved_path": saved_path,
     }
 
@@ -920,9 +926,9 @@ def _embed_chunk_records(
     api_key: str,
     progress_callback: Callable[[str, int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[dict], list[dict], int]:
     texts = [record["chunk_text"] for record in chunk_records]
-    embedded, failures = _embed_chunks_with_failures(
+    embedded, failures, embedding_tokens = _embed_chunks_with_failures(
         texts,
         api_key,
         progress_callback,
@@ -949,7 +955,7 @@ def _embed_chunk_records(
                 "error": failure["error"],
             }
         )
-    return embedded, failure_records
+    return embedded, failure_records, embedding_tokens
 
 
 def _get_preprocessed_text_for_file(file: AnalyzedFile, absolute_path: Path) -> str:

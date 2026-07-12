@@ -40,6 +40,7 @@ from app.license import (
     validate_license,
     verify_license_with_server,
 )
+from app.license_credits import check_balance, consume_credits, precheck_action
 from app.services.ai_analyzer import (
     _REQUIRED_AI_KEYS,
     compute_memo_content_hash,
@@ -267,7 +268,7 @@ class RagPackageProgressDialog(QDialog):
 
 class RagPackageWorker(QThread):
     progress = Signal(str, int, int)
-    succeeded = Signal(str, int)
+    succeeded = Signal(str, int, int)
     failed = Signal(str)
     canceled = Signal()
 
@@ -330,7 +331,11 @@ class RagPackageWorker(QThread):
             self.canceled.emit()
             return
         failed_count = int(result.get("embedding_failed_chunk_count", 0))
-        self.succeeded.emit(str(result.get("saved_path") or self.output_path), failed_count)
+        self.succeeded.emit(
+            str(result.get("saved_path") or self.output_path),
+            failed_count,
+            int(result.get("embedding_tokens", 0)),
+        )
 
 
 class CostEstimationWorker(QThread):
@@ -700,6 +705,15 @@ class MainWindow(QMainWindow):
         self.license_status_label.setObjectName("licenseStatusLabel")
         self.license_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.license_status_label.setVisible(not self.license_activated)
+        self.credit_balance_banner = QLabel("")
+        self.credit_balance_banner.setObjectName("creditBalanceBanner")
+        self.credit_balance_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.credit_balance_banner.setWordWrap(True)
+        self.credit_balance_banner.setStyleSheet(
+            "QLabel { color: #92400e; background: #fef3c7; border: 1px solid #f59e0b; "
+            "border-radius: 6px; padding: 6px 10px; }"
+        )
+        self.credit_balance_banner.hide()
 
         self.email_format_notice_label = QLabel(
             "지원 형식 : .eml, .msg, .zip (zip 안에 eml/msg 포함 가능) ·"
@@ -1024,6 +1038,7 @@ class MainWindow(QMainWindow):
         header_row_layout.addWidget(self.brand_label)
         main_layout.addLayout(header_row_layout)
         main_layout.addWidget(self.license_status_label)
+        main_layout.addWidget(self.credit_balance_banner)
         main_layout.addSpacing(MAIN_SECTION_SPACING)
         main_layout.addLayout(mode_section_layout)
         main_layout.addSpacing(MAIN_SECTION_SPACING)
@@ -1044,6 +1059,7 @@ class MainWindow(QMainWindow):
         self._update_analysis_target_tabs_enabled()
         self.resize(WINDOW_WIDTH, max(WINDOW_MIN_HEIGHT, central_widget.sizeHint().height()))
         self._update_empty_state_labels()
+        QTimer.singleShot(0, self._refresh_credit_balance)
 
     def _connect_signals(self) -> None:
         self.select_folder_button.clicked.connect(self._select_folder)
@@ -1351,6 +1367,19 @@ class MainWindow(QMainWindow):
         self._chatbot_dialog.show()
         self._chatbot_dialog.raise_()
         self._chatbot_dialog.activateWindow()
+
+    def _refresh_credit_balance(self) -> None:
+        balance = check_balance(load_saved_license_code() or "")
+        if balance is None or not balance.get("low_balance"):
+            self.credit_balance_banner.hide()
+            return
+        remaining = int(balance.get("balance", 0) or 0)
+        granted = int(balance.get("granted_total", 0) or 0)
+        percent = round((remaining / granted) * 100) if granted > 0 else 0
+        self.credit_balance_banner.setText(
+            f"⚠ 사용량이 얼마 남지 않았습니다 (잔여 {percent}%). 설명서 페이지에서 충전하세요."
+        )
+        self.credit_balance_banner.show()
 
     def _open_feedback_dialog(self) -> None:
         dialog = FeedbackDialog(self)
@@ -1873,6 +1902,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "인수인계패키지 생성", "API 키를 먼저 설정해주세요.")
             return
 
+        precheck = precheck_action(load_saved_license_code() or "", "package")
+        if precheck is not None and precheck.get("allowed") is False:
+            QMessageBox.warning(
+                self,
+                "인수인계패키지 생성",
+                "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요.",
+            )
+            return
+
         result = self.current_analysis_result
         if result is None:
             QMessageBox.warning(
@@ -2092,13 +2130,20 @@ class MainWindow(QMainWindow):
                 f"파일 처리 중... ({current}/{total} 파일)"
             )
 
-    @Slot(str, int)
+    @Slot(str, int, int)
     def _handle_rag_package_succeeded(
         self,
         saved_path: str,
         failed_chunk_count: int,
+        embedding_tokens: int,
     ) -> None:
         self._finish_rag_package_worker()
+        consume_credits(
+            load_saved_license_code() or "",
+            "package",
+            embedding_tokens=embedding_tokens,
+        )
+        self._refresh_credit_balance()
         message = f"패키지가 생성되었습니다: {saved_path}"
         if failed_chunk_count:
             message += f"\n\n{failed_chunk_count}개 청크는 임베딩 실패로 제외되었습니다."
@@ -2621,7 +2666,8 @@ class MainWindow(QMainWindow):
         if Path(output_path).suffix.lower() != ".docx":
             output_path = f"{output_path}.docx"
 
-        self._refresh_ai_results_before_word_save()
+        if not self._refresh_ai_results_before_word_save():
+            return False
         email_file_paths = self._get_selected_email_file_paths()
         parsed_emails, _ = (
             process_email_files(email_file_paths) if email_file_paths else ([], 0)
@@ -2683,7 +2729,8 @@ class MainWindow(QMainWindow):
         if Path(output_path).suffix.lower() != ".docx":
             output_path = f"{output_path}.docx"
 
-        self._refresh_ai_results_before_word_save()
+        if not self._refresh_ai_results_before_word_save():
+            return
         email_file_paths = self._get_selected_email_file_paths()
         parsed_emails, _ = (
             process_email_files(email_file_paths) if email_file_paths else ([], 0)
@@ -2757,12 +2804,12 @@ class MainWindow(QMainWindow):
 
         return clicked_button is not None and clicked_button != cancel_button
 
-    def _refresh_ai_results_before_word_save(self) -> None:
+    def _refresh_ai_results_before_word_save(self) -> bool:
         result = self.current_analysis_result
         if result is None or result.analysismode != "ai":
-            return
+            return True
         if not self.license_activated or not self.api_key:
-            return
+            return True
 
         pending_memos = [
             memo
@@ -2772,7 +2819,18 @@ class MainWindow(QMainWindow):
             or not all(k in memo.ai_result for k in _REQUIRED_AI_KEYS)
         ]
         if not pending_memos:
-            return
+            return True
+
+        license_code = load_saved_license_code() or ""
+        for _memo in pending_memos:
+            precheck = precheck_action(license_code, "report")
+            if precheck is not None and precheck.get("allowed") is False:
+                QMessageBox.warning(
+                    self,
+                    "인수인계서 저장",
+                    "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요.",
+                )
+                return False
 
         progress_box = QMessageBox(self)
         progress_box.setIcon(QMessageBox.Icon.NoIcon)
@@ -2793,9 +2851,17 @@ class MainWindow(QMainWindow):
 
         try:
             for memo in pending_memos:
-                get_or_refresh_ai_result(
+                ai_result = get_or_refresh_ai_result(
                     memo, result.all_files, result.root_folder_path, parsed_emails
                 )
+                if ai_result is not None:
+                    usage = ai_result.get("_usage", {})
+                    consume_credits(
+                        license_code,
+                        "report",
+                        prompt_tokens=usage.get("prompt_tokens", 0),
+                        completion_tokens=usage.get("completion_tokens", 0),
+                    )
                 QApplication.processEvents()
         finally:
             # QMessageBox.close() is a no-op when it has no standard buttons
@@ -2803,6 +2869,8 @@ class MainWindow(QMainWindow):
             # box never actually disappears. hide() always works.
             progress_box.hide()
             self._set_all_buttons_enabled(True)
+        self._refresh_credit_balance()
+        return True
 
     def _set_all_buttons_enabled(self, enabled: bool) -> None:
         effective_enabled = enabled and self.license_activated

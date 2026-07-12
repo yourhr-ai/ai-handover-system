@@ -163,9 +163,10 @@ NOISE_TERM_SUFFIXES = (
 
 
 class _QueryEmbedding(list):
-    def __init__(self, values: list[float], query: str) -> None:
+    def __init__(self, values: list[float], query: str, usage_tokens: int = 0) -> None:
         super().__init__(values)
         self.query = query
+        self.usage_tokens = usage_tokens
 
 
 def embed_query(query: str, api_key: str) -> list[float]:
@@ -174,7 +175,9 @@ def embed_query(query: str, api_key: str) -> list[float]:
         model=EMBEDDING_MODEL,
         input=query,
     )
-    return _QueryEmbedding(list(response.data[0].embedding), query)
+    usage = getattr(response, "usage", None)
+    tokens = int(getattr(usage, "total_tokens", 0) or getattr(usage, "prompt_tokens", 0) or 0)
+    return _QueryEmbedding(list(response.data[0].embedding), query, tokens)
 
 
 def _create_openai_client(api_key: str) -> OpenAI:
@@ -394,14 +397,25 @@ def generate_answer(
         parsed = {"confidence": "확인불가", "answer": raw_content, "used_sources": []}
 
     primary = _extract_primary_answer(parsed)
+    usage_result = {
+        "prompt_tokens": int(getattr(response.usage, "prompt_tokens", 0) or 0),
+        "completion_tokens": int(getattr(response.usage, "completion_tokens", 0) or 0),
+    }
     confidence = _normalize_confidence(primary.get("confidence"))
     found = confidence != "확인불가" and bool(primary.get("found", True))
     answer = str(primary.get("answer") or "").strip()
     if not found or confidence == "확인불가":
         corrected = _correct_unavailable_placeholder_answer(query, answer, relevant_chunks)
         if corrected is not None:
+            corrected["_usage"] = usage_result
             return corrected
-        return {"confidence": "확인불가", "answer": answer, "sources": [], "related": []}
+        return {
+            "confidence": "확인불가",
+            "answer": answer,
+            "sources": [],
+            "related": [],
+            "_usage": usage_result,
+        }
 
     sources = _normalize_sources(primary.get("used_sources"), relevant_chunks)
     related = _normalize_related_answers(parsed.get("related"), relevant_chunks)
@@ -416,6 +430,7 @@ def generate_answer(
         "answer": answer,
         "sources": sources,
         "related": related,
+        "_usage": usage_result,
     }
 
 
