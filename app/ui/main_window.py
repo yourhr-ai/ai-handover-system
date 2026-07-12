@@ -66,6 +66,7 @@ from app.services.report_writer import (
     save_analysis_result_as_word,
 )
 from app.ui.chatbot_dialog import ChatbotDialog
+from app.ui.feedback_dialog import FeedbackDialog
 from app.ui.memodialog import MemoDialog
 
 
@@ -674,6 +675,8 @@ class MainWindow(QMainWindow):
         self.create_rag_package_button.setEnabled(False)
         self.chatbot_button = QPushButton("물어보기")
         _set_button_role(self.chatbot_button, "secondary")
+        self.feedback_button = QPushButton("💬 의견 보내기")
+        _set_button_role(self.feedback_button, "secondary")
         self.save_json_button = QPushButton("JSON 저장")
         _set_button_role(self.save_json_button, "secondary")
 
@@ -1011,6 +1014,10 @@ class MainWindow(QMainWindow):
         action_row.addSpacing(ACTION_BUTTON_SPACING)
         action_row.addWidget(self.chatbot_button, 1)
 
+        secondary_action_row = QHBoxLayout()
+        secondary_action_row.addStretch()
+        secondary_action_row.addWidget(self.feedback_button)
+
         header_row_layout = QHBoxLayout()
         header_row_layout.addWidget(self.app_title_label)
         header_row_layout.addStretch()
@@ -1027,6 +1034,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(action_separator)
         main_layout.addSpacing(MODE_SECTION_SPACING)
         main_layout.addLayout(action_row)
+        main_layout.addSpacing(ACTION_BUTTON_SPACING)
+        main_layout.addLayout(secondary_action_row)
         main_layout.addSpacing(FOOTER_SPACING)
         main_layout.addWidget(self.copyright_label)
 
@@ -1048,6 +1057,7 @@ class MainWindow(QMainWindow):
         self.edit_memo_button.clicked.connect(self._open_memos_for_current_analysis)
         self.create_rag_package_button.clicked.connect(self._create_rag_package)
         self.chatbot_button.clicked.connect(self._open_chatbot)
+        self.feedback_button.clicked.connect(self._open_feedback_dialog)
         self.save_json_button.clicked.connect(self._save_json)
         self.license_unlock_button.clicked.connect(self._activate_license)
         self.api_key_button.clicked.connect(self._configure_api_key)
@@ -1341,6 +1351,10 @@ class MainWindow(QMainWindow):
         self._chatbot_dialog.show()
         self._chatbot_dialog.raise_()
         self._chatbot_dialog.activateWindow()
+
+    def _open_feedback_dialog(self) -> None:
+        dialog = FeedbackDialog(self)
+        dialog.exec()
 
     def _select_folder(self) -> None:
         selected_folder = QFileDialog.getExistingDirectory(
