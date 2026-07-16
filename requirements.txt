@@ -1,9 +1,11 @@
 PySide6
 python-docx
 openpyxl
+xlrd
 pdfplumber
 python-pptx
 openai
 extract-msg
+olefile
 numpy
 google-api-python-client

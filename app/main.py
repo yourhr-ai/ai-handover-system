@@ -1,4 +1,5 @@
 import sys
+import multiprocessing
 from pathlib import Path
 
 if __package__ is None or __package__ == "":
@@ -81,4 +82,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     raise SystemExit(main())

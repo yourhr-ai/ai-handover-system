@@ -7,7 +7,7 @@ import subprocess
 import urllib.error
 import urllib.request
 import winreg
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -20,11 +20,12 @@ LAST_SEEN_DATE_FILE_PATH = Path("config") / "last_seen_date.dat"
 CLOCK_SKEW_WARNING_DAYS = 1
 TRUSTED_TIME_CHECK_URL = "https://www.google.com"
 TRUSTED_TIME_CHECK_TIMEOUT_SECONDS = 3
+KST = timezone(timedelta(hours=9))
 
 # TODO: 실제 운영 중인 hr-ai-review 서버 주소가 정해지면 아래 값을 교체할 것.
 LICENSE_SERVER_BASE_URL = "https://review.yourhr.co.kr"
 LICENSE_ACTIVATE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/activate"
-LICENSE_SERVER_TIMEOUT_SECONDS = 5
+LICENSE_SERVER_TIMEOUT_SECONDS = 10
 
 
 def _parse_validity_code(validity_code: str) -> tuple[str, int] | None:
@@ -352,7 +353,10 @@ def _check_trusted_time_skew(today: date) -> None:
             server_date_header = response.headers.get("Date")
         if not server_date_header:
             return
-        trusted_date = parsedate_to_datetime(server_date_header).date()
+        trusted_datetime = parsedate_to_datetime(server_date_header)
+        if trusted_datetime.tzinfo is None:
+            trusted_datetime = trusted_datetime.replace(tzinfo=timezone.utc)
+        trusted_date = trusted_datetime.astimezone(KST).date()
     except Exception:
         # 인터넷 연결이 없거나 서버 응답을 해석할 수 없는 경우 - 이 검증은 건너뛴다.
         return

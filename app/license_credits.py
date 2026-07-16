@@ -14,9 +14,18 @@ logger = logging.getLogger(__name__)
 _BALANCE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/token/balance"
 _PRECHECK_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/token/precheck"
 _CONSUME_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/token/consume"
+_RESERVE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/token/reserve"
+_FINALIZE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/token/finalize"
+_TOKEN_UNIT_COST_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/token-unit-cost"
+_PACKAGE_BANNERS_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/package-banners"
+_CHAT_FEEDBACK_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/chat-feedback"
 _PENDING_PATH = Path("config") / "pending_credit_consumptions.json"
 _QUEUE_LOCK = threading.Lock()
 _CONSUME_RETRIES = 3
+_PRECHECK_CACHE_TTL_SECONDS = 8.0
+_PRECHECK_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+_PRECHECK_CACHE_LOCK = threading.Lock()
+_PENDING_WARN_AFTER_SECONDS = 7 * 24 * 60 * 60
 
 
 def _request_json(url: str, *, payload: dict | None = None) -> dict | None:
@@ -51,13 +60,103 @@ def check_balance(license_code: str) -> dict | None:
     return _request_json(f"{_BALANCE_URL}?{query}")
 
 
+def get_embedding_unit_cost() -> float | None:
+    """Return the server's current KRW/credit cost per 1,000 embedding tokens."""
+    result = _request_json(_TOKEN_UNIT_COST_URL)
+    if result is None:
+        return None
+    try:
+        unit_cost = float(result["embedding_krw_per_1k_tokens"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return unit_cost if unit_cost > 0 else None
+
+
+def fetch_package_banners() -> dict | None:
+    """Return optional package-progress banners without blocking package creation."""
+    return _request_json(_PACKAGE_BANNERS_URL)
+
+
+def submit_chat_feedback(
+    license_code: str,
+    question: str,
+    answer_preview: str,
+    rating: str,
+) -> dict | None:
+    """Submit optional answer feedback; callers intentionally ignore failures."""
+    if not license_code or not question or rating not in {"up", "down"}:
+        return None
+    return _request_json(
+        _CHAT_FEEDBACK_URL,
+        payload={
+            "licenseCode": license_code.strip(),
+            "question": question,
+            "answerPreview": answer_preview[:200],
+            "rating": rating,
+        },
+    )
+
+
 def precheck_action(license_code: str, action_type: str) -> dict | None:
     if not license_code:
         return None
-    return _request_json(
+    key = (license_code.strip(), action_type)
+    now = time.monotonic()
+    with _PRECHECK_CACHE_LOCK:
+        cached = _PRECHECK_CACHE.get(key)
+        if cached is not None and now - cached[0] < _PRECHECK_CACHE_TTL_SECONDS:
+            return dict(cached[1])
+    result = _request_json(
         _PRECHECK_URL,
-        payload={"license_code": license_code.strip(), "action_type": action_type},
+        payload={"license_code": key[0], "action_type": action_type},
     )
+    if result is not None:
+        with _PRECHECK_CACHE_LOCK:
+            _PRECHECK_CACHE[key] = (time.monotonic(), dict(result))
+    return result
+
+
+def reserve_credits(
+    license_code: str, action_type: str, cost: int
+) -> dict | None:
+    """Reserve the full estimated action cost before starting expensive work."""
+    if not license_code:
+        return None
+    return _request_json(
+        _RESERVE_URL,
+        payload={
+            "license_code": license_code.strip(),
+            "action_type": action_type,
+            "cost": max(0, int(cost)),
+        },
+    )
+
+
+def finalize_credit_reservation(
+    license_code: str,
+    reservation_id: str,
+    action_type: str,
+    *,
+    embedding_tokens: int = 0,
+    cancel: bool = False,
+) -> dict | None:
+    """Settle a reservation with actual usage, or release it on cancel/failure."""
+    if not license_code or not reservation_id:
+        return None
+    payload = {
+        "license_code": license_code.strip(),
+        "reservation_id": reservation_id,
+        "action_type": action_type,
+        "embedding_tokens": max(0, int(embedding_tokens)),
+        "cancel": bool(cancel),
+    }
+    for attempt in range(_CONSUME_RETRIES):
+        result = _request_json(_FINALIZE_URL, payload=payload)
+        if result is not None and "balance_after" in result:
+            return result
+        if attempt + 1 < _CONSUME_RETRIES:
+            time.sleep(0.25 * (2**attempt))
+    return None
 
 
 def _load_pending() -> list[dict]:
@@ -76,8 +175,9 @@ def _save_pending(items: list[dict]) -> None:
 
 
 def _send_consume(payload: dict) -> dict | None:
+    request_payload = {key: value for key, value in payload.items() if key != "queued_at"}
     for attempt in range(_CONSUME_RETRIES):
-        result = _request_json(_CONSUME_URL, payload=payload)
+        result = _request_json(_CONSUME_URL, payload=request_payload)
         if result is not None and "balance_after" in result:
             return result
         if attempt + 1 < _CONSUME_RETRIES:
@@ -88,6 +188,16 @@ def _send_consume(payload: dict) -> dict | None:
 def flush_pending_consumptions() -> int:
     with _QUEUE_LOCK:
         pending = _load_pending()
+        now = time.time()
+        try:
+            queue_mtime = _PENDING_PATH.stat().st_mtime
+        except OSError:
+            queue_mtime = now
+        for payload in pending:
+            queued_at = payload.get("queued_at")
+            age_base = queued_at if isinstance(queued_at, (int, float)) else queue_mtime
+            if now - age_base >= _PENDING_WARN_AFTER_SECONDS:
+                logger.warning("오래된 크레딧 소비 큐가 남아 있습니다: queued_at=%s action=%s", queued_at, payload.get("action_type"))
         unsent: list[dict] = []
         sent = 0
         for payload in pending:
@@ -113,6 +223,7 @@ def consume_credits(
         "prompt_tokens": max(0, int(prompt_tokens)),
         "completion_tokens": max(0, int(completion_tokens)),
         "embedding_tokens": max(0, int(embedding_tokens)),
+        "queued_at": time.time(),
     }
     with _QUEUE_LOCK:
         pending = _load_pending()

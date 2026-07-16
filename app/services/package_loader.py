@@ -2,10 +2,12 @@
 import logging
 import re
 import tempfile
+import time
 import zipfile
 from datetime import datetime
 from io import FileIO
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -21,7 +23,30 @@ _GDRIVE_VIEWER_PERMISSION_MESSAGE = "공유 설정을 확인해주세요 (링크
 _GDRIVE_FOLDER_NOT_FOUND_MESSAGE = "폴더를 찾을 수 없습니다. 링크를 다시 확인해주세요"
 
 
-def load_packages_from_folder(folder_path: str) -> list[dict]:
+class PackageLoadCancelled(Exception):
+    """Raised when a caller cooperatively cancels a long package load."""
+
+
+def _check_cancel(cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is not None and cancel_check():
+        raise PackageLoadCancelled()
+
+
+def _report_progress(
+    progress_callback: Callable[[str, int], None] | None,
+    stage: str,
+    current: int = 0,
+) -> None:
+    if progress_callback is not None:
+        progress_callback(stage, current)
+
+
+def load_packages_from_folder(
+    folder_path: str,
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> list[dict]:
     packages: list[dict] = []
     package_folder = Path(folder_path)
     if not package_folder.is_dir():
@@ -31,8 +56,15 @@ def load_packages_from_folder(folder_path: str) -> list[dict]:
     zip_count = 0
     folder_count = 0
     for zip_path in sorted(package_folder.glob("*.zip")):
+        _check_cancel(cancel_check)
         try:
-            package = _load_package_zip(zip_path)
+            package = _load_package_zip(
+                zip_path,
+                progress_callback=progress_callback,
+                cancel_check=cancel_check,
+            )
+        except PackageLoadCancelled:
+            raise
         except Exception as exc:
             logger.warning("Skipping invalid package %s: %s", zip_path, exc)
             continue
@@ -41,10 +73,17 @@ def load_packages_from_folder(folder_path: str) -> list[dict]:
             zip_count += 1
 
     for child in sorted(package_folder.iterdir()):
+        _check_cancel(cancel_check)
         if not child.is_dir() or not _is_package_root(child):
             continue
         try:
-            package = _load_package_folder(child)
+            package = _load_package_folder(
+                child,
+                progress_callback=progress_callback,
+                cancel_check=cancel_check,
+            )
+        except PackageLoadCancelled:
+            raise
         except Exception as exc:
             logger.warning("Skipping invalid package folder %s: %s", child, exc)
             continue
@@ -157,7 +196,12 @@ def _get_gdrive_error_message(exc: HttpError) -> str:
     return f"구글드라이브 API 요청에 실패했습니다. 상태 코드: {status or '알 수 없음'}"
 
 
-def merge_and_deduplicate_chunks(packages: list[dict]) -> dict:
+def merge_and_deduplicate_chunks(
+    packages: list[dict],
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> dict:
     all_chunks: list[dict] = []
     candidates_by_source: dict[str, dict[tuple[int, str], dict]] = {}
     memo_chunks: list[dict] = []
@@ -165,7 +209,11 @@ def merge_and_deduplicate_chunks(packages: list[dict]) -> dict:
     for package_index, package in enumerate(packages):
         package_name = package.get("package_name", "")
         package_created_at = _parse_datetime(package.get("created_at", ""))
-        for chunk in package.get("chunks", []):
+        for chunk_index, chunk in enumerate(package.get("chunks", []), start=1):
+            if chunk_index % 500 == 0:
+                _check_cancel(cancel_check)
+                _report_progress(progress_callback, "deduplicate", len(all_chunks))
+                time.sleep(0.001)
             enriched = dict(chunk)
             enriched["package_name"] = package_name
             all_chunks.append(enriched)
@@ -202,7 +250,12 @@ def merge_and_deduplicate_chunks(packages: list[dict]) -> dict:
                 current["chunks"].append(enriched)
 
     deduplicated_chunks = []
-    for source_candidates in candidates_by_source.values():
+    for source_index, source_candidates in enumerate(
+        candidates_by_source.values(), start=1
+    ):
+        if source_index % 500 == 0:
+            _check_cancel(cancel_check)
+            time.sleep(0.001)
         winner = max(
             source_candidates.values(),
             key=lambda group: (
@@ -226,21 +279,48 @@ def merge_and_deduplicate_chunks(packages: list[dict]) -> dict:
     }
 
 
-def _load_package_zip(zip_path: Path) -> dict | None:
+def _load_package_zip(
+    zip_path: Path,
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> dict | None:
     with tempfile.TemporaryDirectory(prefix="handover_package_") as temp_dir:
         temp_path = Path(temp_dir)
         try:
             with zipfile.ZipFile(zip_path) as archive:
-                archive.extractall(temp_path)
+                _extract_archive_responsively(
+                    archive,
+                    temp_path,
+                    progress_callback=progress_callback,
+                    cancel_check=cancel_check,
+                )
         except zipfile.BadZipFile as exc:
             raise ValueError("bad zip file") from exc
 
         root = _find_package_root(temp_path)
-        return _load_package_root(root, fallback_name=zip_path.stem, zip_path=zip_path)
+        return _load_package_root(
+            root,
+            fallback_name=zip_path.stem,
+            zip_path=zip_path,
+            progress_callback=progress_callback,
+            cancel_check=cancel_check,
+        )
 
 
-def _load_package_folder(folder_path: Path) -> dict | None:
-    return _load_package_root(folder_path, fallback_name=folder_path.name, folder_path=folder_path)
+def _load_package_folder(
+    folder_path: Path,
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> dict | None:
+    return _load_package_root(
+        folder_path,
+        fallback_name=folder_path.name,
+        folder_path=folder_path,
+        progress_callback=progress_callback,
+        cancel_check=cancel_check,
+    )
 
 
 def _load_package_root(
@@ -249,10 +329,18 @@ def _load_package_root(
     fallback_name: str,
     zip_path: Path | None = None,
     folder_path: Path | None = None,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
+    _check_cancel(cancel_check)
     manifest = _read_json(root / "manifest.json")
     source_map = _read_json(root / "source_map.json")
-    chunks = _read_chunks_jsonl(root / "chunks.jsonl", source_map)
+    chunks = _read_chunks_jsonl(
+        root / "chunks.jsonl",
+        source_map,
+        progress_callback=progress_callback,
+        cancel_check=cancel_check,
+    )
 
     package = {
         "package_name": manifest.get("package_name") or fallback_name,
@@ -295,13 +383,23 @@ def _read_json(path: Path) -> dict:
     return data
 
 
-def _read_chunks_jsonl(path: Path, source_map: dict[str, Any]) -> list[dict]:
+def _read_chunks_jsonl(
+    path: Path,
+    source_map: dict[str, Any],
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> list[dict]:
     if not path.is_file():
         raise ValueError("missing file: chunks.jsonl")
 
     chunks: list[dict] = []
     with path.open(encoding="utf-8") as file:
         for line_number, line in enumerate(file, start=1):
+            if line_number % 250 == 0:
+                _check_cancel(cancel_check)
+                _report_progress(progress_callback, "parse", line_number)
+                time.sleep(0.001)
             stripped = line.strip()
             if not stripped:
                 continue
@@ -316,6 +414,38 @@ def _read_chunks_jsonl(path: Path, source_map: dict[str, Any]) -> list[dict]:
             chunk["source_metadata"] = metadata if isinstance(metadata, dict) else {}
             chunks.append(chunk)
     return chunks
+
+
+def _extract_archive_responsively(
+    archive: zipfile.ZipFile,
+    destination: Path,
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+) -> None:
+    destination_root = destination.resolve()
+    copied_bytes = 0
+    for member in archive.infolist():
+        _check_cancel(cancel_check)
+        target = (destination / member.filename).resolve()
+        try:
+            target.relative_to(destination_root)
+        except ValueError as exc:
+            raise ValueError("unsafe zip member path") from exc
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(member) as source, target.open("wb") as output:
+            while True:
+                block = source.read(1024 * 1024)
+                if not block:
+                    break
+                output.write(block)
+                copied_bytes += len(block)
+                _check_cancel(cancel_check)
+                _report_progress(progress_callback, "extract", copied_bytes)
+                time.sleep(0.001)
 
 
 def _get_chunk_source_path(chunk: dict) -> str:

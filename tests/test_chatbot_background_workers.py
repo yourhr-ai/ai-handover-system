@@ -1,0 +1,62 @@
+import time
+import unittest
+from unittest.mock import patch
+
+from PySide6.QtCore import QCoreApplication, QTimer
+
+from app.services.rag_search import build_chunk_search_index
+from app.ui.chatbot_dialog import ChatAnswerWorker, CreditUsageWorker
+
+
+def _wait_for_thread(worker, timeout_seconds: float = 2.0) -> None:
+    app = QCoreApplication.instance() or QCoreApplication([])
+    deadline = time.perf_counter() + timeout_seconds
+    while worker.isRunning() and time.perf_counter() < deadline:
+        app.processEvents()
+        time.sleep(0.005)
+    worker.wait(100)
+    app.processEvents()
+
+
+class ChatbotBackgroundWorkerTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QCoreApplication.instance() or QCoreApplication([])
+
+    def test_precheck_wait_does_not_block_ui_event_loop(self):
+        ticks: list[float] = []
+        QTimer.singleShot(20, lambda: ticks.append(time.perf_counter()))
+        index = build_chunk_search_index([])
+        worker = ChatAnswerWorker("질문", index, "api-key", "license")
+
+        def slow_rejection(*_args):
+            time.sleep(0.15)
+            return {"allowed": False}
+
+        with patch("app.ui.chatbot_dialog.precheck_action", side_effect=slow_rejection):
+            worker.start()
+            _wait_for_thread(worker)
+
+        self.assertTrue(ticks, "UI event loop should keep processing while precheck waits")
+
+    def test_credit_retry_wait_does_not_block_ui_event_loop(self):
+        ticks: list[float] = []
+        QTimer.singleShot(20, lambda: ticks.append(time.perf_counter()))
+        worker = CreditUsageWorker("license", {})
+
+        def slow_consume(*_args, **_kwargs):
+            time.sleep(0.15)
+            return None
+
+        with (
+            patch("app.ui.chatbot_dialog.consume_credits", side_effect=slow_consume),
+            patch("app.ui.chatbot_dialog.check_balance", return_value={"low_balance": False}),
+        ):
+            worker.start()
+            _wait_for_thread(worker)
+
+        self.assertTrue(ticks, "UI event loop should keep processing while credit update waits")
+
+
+if __name__ == "__main__":
+    unittest.main()

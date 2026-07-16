@@ -1,15 +1,20 @@
 import hashlib
+import html
 import json
+import math
 import re
+from collections import Counter
 from pathlib import Path
 from datetime import datetime
 from dataclasses import replace
 
-from PySide6.QtCore import QThread, QTimer, Signal, QSize, Slot, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QEvent, QPointF, QRectF, QThread, QTimer, Signal, QSize, Slot, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QGraphicsDropShadowEffect,
@@ -40,7 +45,16 @@ from app.license import (
     validate_license,
     verify_license_with_server,
 )
-from app.license_credits import check_balance, consume_credits, precheck_action
+from app.license_credits import (
+    check_balance,
+    consume_credits,
+    finalize_credit_reservation,
+    fetch_package_banners,
+    flush_pending_consumptions,
+    get_embedding_unit_cost,
+    precheck_action,
+    reserve_credits,
+)
 from app.services.ai_analyzer import (
     _REQUIRED_AI_KEYS,
     compute_memo_content_hash,
@@ -58,9 +72,13 @@ from app.services.analysis_result import (
 from app.services.email_file_handler import process_email_files
 from app.services.folder_scanner import scan_folder
 from app.services.rag_package_builder import (
+    EMBEDDING_BATCH_SIZE,
+    RAG_TEXT_EXTRACTION_EXTENSIONS,
     RagPackageCancelled,
     build_and_save_rag_package,
     estimate_rag_package_cost,
+    filter_files_by_selected_extensions,
+    get_rag_package_candidate_files,
 )
 from app.services.report_writer import (
     save_analysis_result_as_json,
@@ -239,11 +257,333 @@ class _EqualWidthTabWidget(QTabWidget):
         self.tabBar().resize(self.width(), self.tabBar().height())
 
 
+def _skip_confirmation_dialog(*_args, **_kwargs):
+    return QMessageBox.StandardButton.Yes
+
+
+class WorkflowProgressBar(QWidget):
+    """Static 4-step guide for the four main handover actions.
+
+    Intentionally never reflects live completion state (see
+    MemoWorkflowProgressBar in memodialog.py for the same pattern) — this is
+    a purely informational, always-neutral order-of-operations label.
+    """
+
+    STEP_LABELS = ("분석시작", "메모작성", "패키지생성", "물어보기")
+    STEP_COLOR = QColor("#7C3AED")
+    LABEL_COLOR = QColor("#6B7280")
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("workflowProgressBar")
+        self.setMinimumHeight(62)
+        self.setSizePolicy(
+            self.sizePolicy().horizontalPolicy(),
+            self.sizePolicy().verticalPolicy(),
+        )
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width = max(self.width(), 1)
+        step_count = len(self.STEP_LABELS)
+        side_margin = max(42.0, min(76.0, width * 0.075))
+        available_width = max(1.0, width - (side_margin * 2))
+        centers = [
+            QPointF(side_margin + available_width * index / (step_count - 1), 19.0)
+            for index in range(step_count)
+        ]
+
+        painter.setPen(QPen(self.STEP_COLOR, 2.0, Qt.PenStyle.SolidLine))
+        for index in range(step_count - 1):
+            painter.drawLine(
+                QPointF(centers[index].x() + 14, centers[index].y()),
+                QPointF(centers[index + 1].x() - 14, centers[index + 1].y()),
+            )
+
+        symbol_font = QFont(self.font())
+        symbol_font.setPixelSize(12)
+        symbol_font.setBold(True)
+        label_font = QFont(self.font())
+        label_font.setPixelSize(11)
+
+        for index, center in enumerate(centers):
+            circle = QRectF(center.x() - 12, center.y() - 12, 24, 24)
+            painter.setPen(QPen(self.STEP_COLOR, 2.0))
+            painter.setBrush(QColor("#FFFFFF"))
+            painter.drawEllipse(circle)
+
+            painter.setFont(symbol_font)
+            painter.setPen(self.STEP_COLOR)
+            painter.drawText(circle, Qt.AlignmentFlag.AlignCenter, str(index + 1))
+
+            painter.setFont(label_font)
+            painter.setPen(self.LABEL_COLOR)
+            label_rect = QRectF(center.x() - 58, 37, 116, 20)
+            painter.drawText(
+                label_rect,
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                self.STEP_LABELS[index],
+            )
+
+
+class FileContentExtensionDialog(QDialog):
+    EXTENSION_GROUPS = (
+        ("워드 문서", (".docx",), 3, "워드(DOCX)"),
+        ("파워포인트", (".pptx", ".ppt"), 3, "파워포인트(PPT/PPTX)"),
+        ("한글", (".hwp", ".hwpx"), 8, "한글(HWP/HWPX)"),
+        ("엑셀", (".xlsx", ".xls"), 12, "엑셀(XLS/XLSX)"),
+        ("텍스트/마크다운", (".txt", ".md"), 1, "텍스트/마크다운"),
+    )
+    TIME_LEVEL_STYLES = {
+        "낮음": "color: #475569; background: #F1F5F9; border: 1px solid #CBD5E1;",
+        "중간": "color: #334155; background: #E2E8F0; border: 1px solid #CBD5E1;",
+        "다소 높음": "color: #9A3412; background: #FFEDD5; border: 1px solid #FDBA74;",
+        "매우 높음": "color: #B91C1C; background: #FEE2E2; border: 1px solid #FCA5A5;",
+    }
+    SIZE_LIMIT_OPTIONS = (
+        ("안함", 0),
+        ("1메가", 1 * 1024 * 1024),
+        ("5메가", 5 * 1024 * 1024),
+        ("10메가", 10 * 1024 * 1024),
+        ("30메가", 30 * 1024 * 1024),
+        ("제한없음", None),
+    )
+    LOCAL_SECONDS_PER_WEIGHTED_FILE = 88.6 / 2761
+    ESTIMATED_BYTES_PER_CHUNK = 2048
+    EMBEDDING_SECONDS_PER_BATCH = 5
+    ESTIMATE_BUFFER_SECONDS = 5 * 60
+
+    @staticmethod
+    def processing_time_level(score: int) -> str:
+        if score <= 250:
+            return "낮음"
+        if score <= 750:
+            return "중간"
+        if score <= 1500:
+            return "다소 높음"
+        return "매우 높음"
+
+    def __init__(self, files: list[AnalyzedFile], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._files = list(files)
+        self.setWindowTitle("인수인계패키지로 만들 파일 선택")
+        self.setModal(True)
+        self.setMinimumSize(630, 390)
+        counts = Counter(
+            Path(file.file_name).suffix.lower()
+            for file in files
+            if Path(file.file_name).suffix.lower() in RAG_TEXT_EXTRACTION_EXTENSIONS
+        )
+        self._extension_limit_combos: list[tuple[QComboBox, tuple[str, ...]]] = []
+        self._time_badges: dict[tuple[str, ...], QLabel] = {}
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(12)
+
+        for label, extensions, weight, _guide_label in self.EXTENSION_GROUPS:
+            count = sum(counts[extension] for extension in extensions)
+            if count == 0:
+                continue
+            time_level = self.processing_time_level(count * weight)
+            extension_text = ", ".join(extensions)
+            group_label = QLabel(f"{label} ({extension_text}) — {count:,}개", self)
+            group_label.setObjectName(f"extensionGroupLabel_{extensions[0][1:]}")
+            group_label.setStyleSheet("QLabel { font-size: 12px; padding: 4px 2px; }")
+            limit_combo = QComboBox(self)
+            limit_combo.setObjectName(f"extensionLimitCombo_{extensions[0][1:]}")
+            for option_label, size_bytes in self.SIZE_LIMIT_OPTIONS:
+                limit_combo.addItem(option_label, size_bytes)
+            limit_combo.setCurrentText("1메가")
+            limit_combo.setMinimumWidth(105)
+            limit_combo.setToolTip(
+                "안함은 파일명만 포함하고, 나머지는 선택 용량 이하 파일의 내용을 포함합니다."
+            )
+            time_badge = QLabel(f"예상 시간: {time_level}", self)
+            time_badge.setObjectName(f"processingTimeBadge_{extensions[0][1:]}")
+            time_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            time_badge.setStyleSheet(
+                "QLabel { font-size: 11px; font-weight: 600; padding: 4px 8px; "
+                "border-radius: 9px; "
+                f"{self.TIME_LEVEL_STYLES[time_level]} }}"
+            )
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(0)
+            row.addWidget(group_label)
+            row.addSpacing(20)
+            row.addWidget(time_badge)
+            row.addStretch()
+            row.addWidget(limit_combo)
+            self._extension_limit_combos.append((limit_combo, extensions))
+            self._time_badges[extensions] = time_badge
+            limit_combo.currentIndexChanged.connect(self._update_estimated_time)
+            layout.addLayout(row)
+
+        self.long_processing_notice = QLabel(
+            "문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등) 및 선택한 용량 이상의 파일은\n"
+            "파일명/경로/수정일만 포함합니다.",
+            self,
+        )
+        self.long_processing_notice.setObjectName("longProcessingNotice")
+        self.long_processing_notice.setWordWrap(True)
+        self.long_processing_notice.setStyleSheet(
+            "QLabel { color: #7C2D12; font-size: 11px; padding: 8px 10px; "
+            "background: #FFF7ED; border-left: 3px solid #FB923C; }"
+        )
+        layout.addWidget(self.long_processing_notice)
+
+        self.estimated_time_label = QLabel(self)
+        self.estimated_time_label.setObjectName("estimatedProcessingTimeLabel")
+        self.estimated_time_label.setWordWrap(True)
+        self.estimated_time_label.setStyleSheet(
+            "QLabel { color: #0F172A; font-size: 13px; font-weight: 700; "
+            "padding: 10px 12px; background: #EFF6FF; "
+            "border: 1px solid #BFDBFE; border-radius: 6px; }"
+        )
+        layout.addWidget(self.estimated_time_label)
+        # The layout contributes its regular 12px spacing before this spacer,
+        # producing an exact 25px visual gap above the purple benefit text.
+        layout.addSpacing(13)
+        self.package_benefit_label = QLabel(
+            "챗봇을 사용하려면 '인수인계패키지 생성' 필수. "
+            "다른 사람에게 물어보는걸 87% 줄이세요.",
+            self,
+        )
+        self.package_benefit_label.setObjectName("packageBenefitLabel")
+        self.package_benefit_label.setWordWrap(True)
+        self.package_benefit_label.setStyleSheet(
+            "QLabel { color: #7C3AED; font-size: 13px; font-weight: 600; "
+            "padding: 0 12px; }"
+        )
+        layout.addWidget(self.package_benefit_label)
+        self._update_estimated_time()
+        # The layout contributes its regular 12px spacing after this spacer,
+        # producing an exact 25px visual gap below the purple benefit text.
+        layout.addSpacing(13)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("확인")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("취소")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selected_extensions(self) -> set[str]:
+        return {
+            extension
+            for combo, extensions in self._extension_limit_combos
+            if combo.currentData() != 0
+            for extension in extensions
+        }
+
+    def extension_size_limits(self) -> dict[str, int | None]:
+        return {
+            extension: combo.currentData()
+            for combo, extensions in self._extension_limit_combos
+            for extension in extensions
+        }
+
+    def content_target_files(self) -> list[AnalyzedFile]:
+        content_files, _filename_only_files = filter_files_by_selected_extensions(
+            self._files,
+            self.selected_extensions(),
+            extension_size_limits=self.extension_size_limits(),
+        )
+        return content_files
+
+    @classmethod
+    def _extension_weight(cls, file_name: str) -> int:
+        extension = Path(file_name).suffix.lower()
+        for _label, extensions, weight, _guide_label in cls.EXTENSION_GROUPS:
+            if extension in extensions:
+                return weight
+        return 1
+
+    @classmethod
+    def _format_estimated_duration(cls, seconds: float) -> str:
+        if seconds <= 0:
+            return "약 0분 소요"
+        if seconds <= 10 * 60:
+            return "약 10분 소요"
+        if seconds <= 20 * 60:
+            return "약 15~20분 소요"
+        if seconds <= 30 * 60:
+            return "약 30분 소요"
+        if seconds <= 60 * 60:
+            return "약 1시간 소요"
+        return f"약 {math.ceil(seconds / 3600)}시간 소요"
+
+    def _estimated_duration_seconds(self, content_files: list[AnalyzedFile]) -> float:
+        weighted_file_count = sum(
+            self._extension_weight(file.file_name) for file in content_files
+        )
+        local_seconds = (
+            weighted_file_count * self.LOCAL_SECONDS_PER_WEIGHTED_FILE
+        )
+        estimated_chunks = sum(
+            max(1, math.ceil(file.size_bytes / self.ESTIMATED_BYTES_PER_CHUNK))
+            for file in content_files
+        )
+        embedding_batches = (
+            math.ceil(estimated_chunks / EMBEDDING_BATCH_SIZE)
+            if estimated_chunks
+            else 0
+        )
+        embedding_seconds = embedding_batches * self.EMBEDDING_SECONDS_PER_BATCH
+        return (
+            local_seconds + embedding_seconds + self.ESTIMATE_BUFFER_SECONDS
+            if content_files
+            else 0
+        )
+
+    @Slot()
+    def _update_estimated_time(self, *_args) -> None:
+        content_files = self.content_target_files()
+        limits = self.extension_size_limits()
+        for _combo, extensions in self._extension_limit_combos:
+            matching_files = [
+                file
+                for file in content_files
+                if Path(file.file_name).suffix.lower() in extensions
+            ]
+            badge = self._time_badges[extensions]
+            if all(limits[extension] == 0 for extension in extensions):
+                badge.setText("예상 시간: 해당 없음")
+                badge.setStyleSheet(
+                    "QLabel { color: #64748B; background: #F1F5F9; "
+                    "font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 9px; }"
+                )
+                continue
+            score = sum(self._extension_weight(file.file_name) for file in matching_files)
+            time_level = self.processing_time_level(score)
+            badge.setText(f"예상 시간: {time_level}")
+            badge.setStyleSheet(
+                "QLabel { font-size: 11px; font-weight: 600; padding: 4px 8px; "
+                "border-radius: 9px; "
+                f"{self.TIME_LEVEL_STYLES[time_level]} }}"
+            )
+        duration_text = self._format_estimated_duration(
+            self._estimated_duration_seconds(content_files)
+        )
+        self.estimated_time_label.setText(
+            f"{len(content_files):,}개 파일 → 패키지 생성 - {duration_text}"
+        )
+
+
 class RagPackageProgressDialog(QDialog):
     def __init__(self, cancel_callback, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._cancel_callback = cancel_callback
         self._cancel_requested = False
+        self.banner_container: QWidget | None = None
+        self.banner_labels: dict[str, QLabel] = {}
+        self.banner_fetch_started = False
 
     def closeEvent(self, event) -> None:
         if self._cancel_requested:
@@ -253,7 +593,7 @@ class RagPackageProgressDialog(QDialog):
         reply = QMessageBox.question(
             self,
             "인수인계패키지 생성",
-            "패키지 생성을 취소하시겠습니까? 지금까지 처리된 내용은 저장되지 않습니다.",
+            "패키지 생성을 취소하시겠습니까? 처리된 파일은 저장되어 다음 생성 때 이어서 진행됩니다.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -268,7 +608,7 @@ class RagPackageProgressDialog(QDialog):
 
 class RagPackageWorker(QThread):
     progress = Signal(str, int, int)
-    succeeded = Signal(str, int, int)
+    succeeded = Signal(str, int, int, int)
     failed = Signal(str)
     canceled = Signal()
 
@@ -280,6 +620,7 @@ class RagPackageWorker(QThread):
         output_path: str,
         parsed_emails: list[dict],
         kakao_file_paths: list[str],
+        extension_size_limits: dict[str, int | None],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -289,6 +630,7 @@ class RagPackageWorker(QThread):
         self.output_path = output_path
         self.parsed_emails = parsed_emails
         self.kakao_file_paths = kakao_file_paths
+        self.extension_size_limits = extension_size_limits
         self._cancel_requested = False
 
     def request_cancel(self) -> None:
@@ -316,6 +658,8 @@ class RagPackageWorker(QThread):
                 self.output_path,
                 parsed_emails=self.parsed_emails,
                 kakao_file_paths=self.kakao_file_paths,
+                selected_extensions=set(self.extension_size_limits),
+                extension_size_limits=self.extension_size_limits,
                 progress_callback=self.progress.emit,
                 cancel_check=self._is_cancel_requested,
             )
@@ -335,6 +679,7 @@ class RagPackageWorker(QThread):
             str(result.get("saved_path") or self.output_path),
             failed_count,
             int(result.get("embedding_tokens", 0)),
+            int(result.get("timed_out_file_count", 0)),
         )
 
 
@@ -342,6 +687,7 @@ class CostEstimationWorker(QThread):
     succeeded = Signal(dict, list)
     failed = Signal(str)
     canceled = Signal()
+    progress = Signal(str, int, int)
 
     def __init__(
         self,
@@ -349,6 +695,7 @@ class CostEstimationWorker(QThread):
         folder_paths: list[str],
         email_file_paths: list[str],
         kakao_file_paths: list[str],
+        extension_size_limits: dict[str, int | None],
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -356,6 +703,7 @@ class CostEstimationWorker(QThread):
         self.folder_paths = folder_paths
         self.email_file_paths = email_file_paths
         self.kakao_file_paths = kakao_file_paths
+        self.extension_size_limits = extension_size_limits
         self._cancel_requested = False
 
     def request_cancel(self) -> None:
@@ -366,6 +714,9 @@ class CostEstimationWorker(QThread):
 
     def run(self) -> None:
         try:
+            embedding_unit_cost = get_embedding_unit_cost()
+            if embedding_unit_cost is None:
+                raise RuntimeError("서버에서 최신 임베딩 단가를 조회하지 못했습니다.")
             parsed_emails, _ = (
                 process_email_files(self.email_file_paths)
                 if self.email_file_paths
@@ -377,6 +728,10 @@ class CostEstimationWorker(QThread):
                 parsed_emails,
                 self.kakao_file_paths,
                 cancel_check=self._is_cancel_requested,
+                progress_callback=self.progress.emit,
+                selected_extensions=set(self.extension_size_limits),
+                extension_size_limits=self.extension_size_limits,
+                embedding_unit_cost_per_1k=embedding_unit_cost,
             )
         except RagPackageCancelled:
             self.canceled.emit()
@@ -388,6 +743,149 @@ class CostEstimationWorker(QThread):
             self.canceled.emit()
             return
         self.succeeded.emit(estimate, parsed_emails)
+
+
+class CreditPrecheckWorker(QThread):
+    completed = Signal(object)
+
+    def __init__(self, license_code: str, action_type: str, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.action_type = action_type
+
+    def run(self) -> None:
+        try:
+            result = precheck_action(self.license_code, self.action_type)
+        except Exception:
+            result = None
+        self.completed.emit(result)
+
+
+class PackageBannerWorker(QThread):
+    completed = Signal(object)
+
+    def run(self) -> None:
+        try:
+            result = fetch_package_banners()
+        except Exception:
+            result = None
+        self.completed.emit(result)
+
+
+class CreditBalanceWorker(QThread):
+    completed = Signal(str, object)
+
+    def __init__(self, license_code: str, *, flush_pending: bool = False, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.flush_pending = flush_pending
+
+    def run(self) -> None:
+        try:
+            if self.flush_pending:
+                flush_pending_consumptions()
+            balance = check_balance(self.license_code)
+        except Exception:
+            balance = None
+        self.completed.emit(self.license_code, balance)
+
+
+class CreditFinalizeWorker(QThread):
+    completed = Signal(str, object)
+
+    def __init__(self, license_code: str, action_type: str, usage: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.action_type = action_type
+        self.usage = usage
+
+    def run(self) -> None:
+        try:
+            consume_credits(self.license_code, self.action_type, **self.usage)
+            flush_pending_consumptions()
+            balance = check_balance(self.license_code)
+        except Exception:
+            balance = None
+        self.completed.emit(self.license_code, balance)
+
+
+class PackageCreditReserveWorker(QThread):
+    completed = Signal(str, object)
+
+    def __init__(self, license_code: str, estimated_cost: int, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.estimated_cost = estimated_cost
+
+    def run(self) -> None:
+        try:
+            result = reserve_credits(self.license_code, "package", self.estimated_cost)
+        except Exception:
+            result = None
+        self.completed.emit(self.license_code, result)
+
+
+class PackageCreditFinalizeWorker(QThread):
+    completed = Signal(str, object)
+
+    def __init__(self, license_code: str, reservation_id: str, *, embedding_tokens: int = 0, cancel: bool = False, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.reservation_id = reservation_id
+        self.embedding_tokens = embedding_tokens
+        self.cancel = cancel
+
+    def run(self) -> None:
+        try:
+            finalize_credit_reservation(
+                self.license_code,
+                self.reservation_id,
+                "package",
+                embedding_tokens=self.embedding_tokens,
+                cancel=self.cancel,
+            )
+            balance = check_balance(self.license_code)
+        except Exception:
+            balance = None
+        self.completed.emit(self.license_code, balance)
+
+
+class ReportAiWorker(QThread):
+    succeeded = Signal(str, object)
+    denied = Signal()
+    failed = Signal(str)
+
+    def __init__(self, pending_memos, all_files, root_folder_path, parsed_emails, license_code, parent=None):
+        super().__init__(parent)
+        self.pending_memos = pending_memos
+        self.all_files = all_files
+        self.root_folder_path = root_folder_path
+        self.parsed_emails = parsed_emails
+        self.license_code = license_code
+
+    def run(self) -> None:
+        try:
+            for _memo in self.pending_memos:
+                precheck = precheck_action(self.license_code, "report")
+                if precheck is not None and precheck.get("allowed") is False:
+                    self.denied.emit()
+                    return
+            for memo in self.pending_memos:
+                ai_result = get_or_refresh_ai_result(
+                    memo, self.all_files, self.root_folder_path, self.parsed_emails
+                )
+                if ai_result is not None:
+                    usage = ai_result.get("_usage", {})
+                    consume_credits(
+                        self.license_code,
+                        "report",
+                        prompt_tokens=usage.get("prompt_tokens", 0),
+                        completion_tokens=usage.get("completion_tokens", 0),
+                    )
+                    flush_pending_consumptions()
+            self.succeeded.emit(self.license_code, check_balance(self.license_code))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class AnalysisWorker(QThread):
@@ -614,7 +1112,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("인수인계 프로그램")
         self.resize(WINDOW_WIDTH, WINDOW_MIN_HEIGHT)
-        self.setFixedWidth(WINDOW_WIDTH)
+        self.setMinimumWidth(WINDOW_WIDTH)
 
         self.current_analysis_result: AnalysisResult | None = None
         self.current_analysis_analyzed_at: datetime | None = None
@@ -631,6 +1129,16 @@ class MainWindow(QMainWindow):
         self._analysis_worker: AnalysisWorker | None = None
         self._analysis_progress_box: QMessageBox | None = None
         self._analysis_progress_timer: QTimer | None = None
+        self._credit_workers: set[QThread] = set()
+        self._package_banner_workers: set[PackageBannerWorker] = set()
+        self._package_reserve_worker: PackageCreditReserveWorker | None = None
+        self._package_reserve_canceled = False
+        self._package_reservation_id: str | None = None
+        self._package_reservation_license_code: str | None = None
+        self._report_ai_worker: ReportAiWorker | None = None
+        self._report_ai_progress_box: QMessageBox | None = None
+        self._pending_word_save: tuple[str, bool] | None = None
+        self._credit_refresh_timer: QTimer | None = None
 
         self.app_title_label = QLabel(
             '<span style="font-size:22px; font-weight:bold; color:#1A1A1A;">'
@@ -677,11 +1185,21 @@ class MainWindow(QMainWindow):
         self.edit_memo_button.setEnabled(False)
         self.create_rag_package_button = QPushButton("인수인계패키지 생성")
         _set_button_role(self.create_rag_package_button, "secondary")
-        self.create_rag_package_button.setEnabled(False)
+        self.create_rag_package_button.setEnabled(True)
         self.chatbot_button = QPushButton("물어보기")
         _set_button_role(self.chatbot_button, "secondary")
         self.feedback_button = QPushButton("💬 의견 보내기")
-        _set_button_role(self.feedback_button, "secondary")
+        self.feedback_button.setObjectName("feedbackButton")
+        self.feedback_button.setFixedHeight(28)
+        self.feedback_button.setMaximumWidth(110)
+        self.feedback_button.setStyleSheet(
+            "QPushButton { color: #64748B; background: #F8FAFC; "
+            "border: 1px solid #E2E8F0; border-radius: 6px; "
+            "font-size: 11px; padding: 4px 9px; } "
+            "QPushButton:hover { color: #475569; background: #F1F5F9; "
+            "border-color: #CBD5E1; }"
+        )
+        self.workflow_progress = WorkflowProgressBar(self)
         self.save_json_button = QPushButton("JSON 저장")
         _set_button_role(self.save_json_button, "secondary")
 
@@ -845,17 +1363,88 @@ class MainWindow(QMainWindow):
             return
 
         previous_mode = self.selected_analysis_mode
+        if previous_mode == mode_key:
+            return
+        if self._has_analysis_targets_or_memo_content():
+            reply = QMessageBox.question(
+                self,
+                "분석 모드 변경",
+                "모드를 변경하면 선택한 내용과 작성한 메모가 모두 초기화 됩니다.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        self._reset_for_analysis_mode_change()
         self.selected_analysis_mode = mode_key
-        if previous_mode != mode_key:
-            self._mark_report_unsaved()
         self._update_mode_card_styles()
         self._update_analysis_mode_notice()
-
-        if previous_mode == "ai" and mode_key == "basic":
-            self._clear_email_files()
-            self._clear_kakao_files()
-
         self._update_analysis_target_tabs_enabled()
+
+    def _has_analysis_targets_or_memo_content(self) -> bool:
+        return bool(
+            self._get_selected_folder_paths()
+            or self._get_selected_email_file_paths()
+            or self._get_selected_kakao_file_paths()
+            or self._has_memo_content_or_links()
+        )
+
+    def _has_memo_content_or_links(self) -> bool:
+        result = self.current_analysis_result
+        if result is None:
+            return False
+        return any(
+            memo.title.strip()
+            or memo.content.strip()
+            or memo.linked_folders
+            or memo.linked_files
+            or memo.linked_emails
+            or memo.linked_kakao_files
+            for memo in result.memos
+        )
+
+    def _confirm_clear_memos_for_analysis_restart(self) -> bool:
+        if not self._has_memo_content_or_links():
+            return True
+        reply = QMessageBox.question(
+            self,
+            "분석 시작",
+            "분석시작을 다시 하면 메모작성팝업의 내용이 모두 삭제됩니다.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return reply == QMessageBox.StandardButton.Ok
+
+    def _clear_memos_for_analysis_restart(self) -> None:
+        if self._memo_dialog is not None:
+            self._memo_dialog.discard_and_close()
+            self._memo_dialog = None
+        if self.current_analysis_result is not None:
+            self.current_analysis_result.memos.clear()
+            self.current_analysis_result.handover_qa.answers = ["", "", "", "", ""]
+
+    def _reset_for_analysis_mode_change(self) -> None:
+        if self._memo_dialog is not None:
+            self._memo_dialog.discard_and_close()
+            self._memo_dialog = None
+
+        self.folder_path_input.clear()
+        self.folder_list_widget.clear()
+        self.email_file_list_widget.clear()
+        self.kakao_file_list_widget.clear()
+        self.analysis_target_tabs.setCurrentIndex(self._folder_tab_index)
+
+        # AnalysisResult owns memos, their source links, handover answers, and
+        # memo.ai_result caches. Dropping it invalidates all mode-dependent data.
+        self.current_analysis_result = None
+        self.current_analysis_analyzed_at = None
+        self.result_preview.clear()
+        self._last_saved_report_fingerprint = None
+        self._last_saved_word_path = None
+        self.edit_memo_button.setEnabled(False)
+        self._update_empty_state_labels()
+        self._update_start_button_enabled()
 
     def _update_analysis_target_tabs_enabled(self) -> None:
         ai_mode_active = self.selected_analysis_mode == "ai"
@@ -1028,9 +1617,15 @@ class MainWindow(QMainWindow):
         action_row.addSpacing(ACTION_BUTTON_SPACING)
         action_row.addWidget(self.chatbot_button, 1)
 
-        secondary_action_row = QHBoxLayout()
-        secondary_action_row.addStretch()
-        secondary_action_row.addWidget(self.feedback_button)
+        footer_row = QHBoxLayout()
+        footer_row.setSpacing(8)
+        footer_balance_spacer = QWidget()
+        footer_balance_spacer.setFixedWidth(110)
+        footer_row.addWidget(footer_balance_spacer)
+        footer_row.addStretch()
+        footer_row.addWidget(self.copyright_label)
+        footer_row.addStretch()
+        footer_row.addWidget(self.feedback_button)
 
         header_row_layout = QHBoxLayout()
         header_row_layout.addWidget(self.app_title_label)
@@ -1048,18 +1643,21 @@ class MainWindow(QMainWindow):
         main_layout.addSpacing(MODE_SECTION_SPACING)
         main_layout.addWidget(action_separator)
         main_layout.addSpacing(MODE_SECTION_SPACING)
+        main_layout.addWidget(self.workflow_progress)
+        main_layout.addSpacing(4)
         main_layout.addLayout(action_row)
-        main_layout.addSpacing(ACTION_BUTTON_SPACING)
-        main_layout.addLayout(secondary_action_row)
         main_layout.addSpacing(FOOTER_SPACING)
-        main_layout.addWidget(self.copyright_label)
+        main_layout.addLayout(footer_row)
 
         self.setCentralWidget(central_widget)
         self._update_mode_card_styles()
         self._update_analysis_target_tabs_enabled()
         self.resize(WINDOW_WIDTH, max(WINDOW_MIN_HEIGHT, central_widget.sizeHint().height()))
         self._update_empty_state_labels()
-        QTimer.singleShot(0, self._refresh_credit_balance)
+        QTimer.singleShot(0, self._start_startup_credit_maintenance)
+        self._credit_refresh_timer = QTimer(self)
+        self._credit_refresh_timer.timeout.connect(self._refresh_credit_balance)
+        self._credit_refresh_timer.start(5 * 60 * 1000)
 
     def _connect_signals(self) -> None:
         self.select_folder_button.clicked.connect(self._select_folder)
@@ -1212,6 +1810,8 @@ class MainWindow(QMainWindow):
             self._license_lock_reason = None if self.license_activated else "expired"
             self._apply_license_lock_state(show_warning=not self.license_activated)
             if self.license_activated:
+                self.credit_balance_banner.hide()
+                self._refresh_credit_balance()
                 QMessageBox.information(
                     self,
                     "라이선스 등록",
@@ -1368,9 +1968,38 @@ class MainWindow(QMainWindow):
         self._chatbot_dialog.raise_()
         self._chatbot_dialog.activateWindow()
 
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowActivate:
+            QTimer.singleShot(0, self._refresh_credit_balance)
+
     def _refresh_credit_balance(self) -> None:
-        balance = check_balance(load_saved_license_code() or "")
-        if balance is None or not balance.get("low_balance"):
+        self._start_credit_balance_worker(flush_pending=False)
+
+    def _start_startup_credit_maintenance(self) -> None:
+        self._start_credit_balance_worker(flush_pending=True)
+
+    def _start_credit_balance_worker(self, *, flush_pending: bool) -> None:
+        worker = CreditBalanceWorker(
+            load_saved_license_code() or "", flush_pending=flush_pending, parent=self
+        )
+        worker.completed.connect(self._apply_credit_balance)
+        self._track_credit_worker(worker)
+
+    def _track_credit_worker(self, worker: QThread) -> None:
+        self._credit_workers.add(worker)
+        worker.finished.connect(lambda worker=worker: self._credit_workers.discard(worker))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    @Slot(str, object)
+    def _apply_credit_balance(self, license_code: str, balance: object) -> None:
+        if license_code.strip() != (load_saved_license_code() or "").strip():
+            return
+        if not isinstance(balance, dict):
+            self.credit_balance_banner.hide()
+            return
+        if not balance.get("low_balance"):
             self.credit_balance_banner.hide()
             return
         remaining = int(balance.get("balance", 0) or 0)
@@ -1451,15 +2080,6 @@ class MainWindow(QMainWindow):
     def _update_start_button_enabled(self) -> None:
         self.start_analysis_button.setEnabled(True)
         self.edit_memo_button.setEnabled(self.current_analysis_result is not None)
-        self._update_rag_package_button_enabled()
-
-    def _update_rag_package_button_enabled(self) -> None:
-        can_create_package = (
-            self.current_analysis_result is not None
-            and bool(self._last_saved_word_path)
-            and self._last_saved_report_fingerprint == self._build_report_state_fingerprint()
-        )
-        self.create_rag_package_button.setEnabled(can_create_package)
 
     def _get_selected_folder_paths(self) -> list[str]:
         return [
@@ -1790,6 +2410,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "분석 시작", "API 키를 먼저 설정해주세요.")
             return False
 
+        if not self._confirm_clear_memos_for_analysis_restart():
+            return False
+        self._clear_memos_for_analysis_restart()
+
         self.result_preview.setPlainText("분석을 시작합니다...")
         self.start_analysis_button.setEnabled(False)
         progress_box = self._create_analysis_progress_dialog("분석 중입니다...")
@@ -1902,35 +2526,53 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "인수인계패키지 생성", "API 키를 먼저 설정해주세요.")
             return
 
-        precheck = precheck_action(load_saved_license_code() or "", "package")
-        if precheck is not None and precheck.get("allowed") is False:
-            QMessageBox.warning(
-                self,
-                "인수인계패키지 생성",
-                "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요.",
-            )
-            return
+        # Estimate first, then reserve that full amount.  The former fixed
+        # package precheck (40 credits) did not protect large package jobs.
+        self._continue_create_rag_package(api_key)
 
-        result = self.current_analysis_result
-        if result is None:
-            QMessageBox.warning(
-                self,
-                "인수인계패키지 생성",
-                "인수인계서를 먼저 작성/저장하셔야 합니다",
-            )
-            return
-
-        if self._last_saved_report_fingerprint != self._build_report_state_fingerprint():
-            QMessageBox.warning(
-                self,
-                "인수인계패키지 생성",
-                "인수인계서를 먼저 작성/저장하셔야 합니다",
-            )
-            return
-
+    def _continue_create_rag_package(self, api_key: str) -> None:
         folder_paths = self._get_selected_folder_paths()
         email_file_paths = self._get_selected_email_file_paths()
         kakao_file_paths = self._get_selected_kakao_file_paths()
+        if not folder_paths and not email_file_paths and not kakao_file_paths:
+            QMessageBox.warning(
+                self,
+                "인수인계패키지 생성",
+                "분석 대상을 먼저 선택해주세요.",
+            )
+            return
+
+        if folder_paths:
+            result = AnalysisWorker(
+                folder_paths,
+                self._get_selected_analysis_mode(),
+            )._build_merged_analysis_result(folder_paths)
+            if self.current_analysis_result is not None:
+                result = replace(result, memos=self.current_analysis_result.memos)
+        else:
+            result = AnalysisResult(
+                root_folder_path="",
+                total_folder_count=0,
+                total_file_count=0,
+                total_size_bytes=0,
+                modified_within_7_days_count=0,
+                modified_within_30_days_count=0,
+                modified_within_90_days_count=0,
+                error_count=0,
+                child_folder_summaries=[],
+            )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            package_candidate_files = get_rag_package_candidate_files(
+                result,
+                folder_paths,
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+        extension_dialog = FileContentExtensionDialog(package_candidate_files, self)
+        if extension_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        extension_size_limits = extension_dialog.extension_size_limits()
 
         progress_box, progress_label = self._create_rag_package_progress_dialog(
             "예상 비용 계산 중..."
@@ -1945,6 +2587,7 @@ class MainWindow(QMainWindow):
             folder_paths,
             email_file_paths,
             kakao_file_paths,
+            extension_size_limits,
             self,
         )
         self._rag_package_context = {
@@ -1952,28 +2595,31 @@ class MainWindow(QMainWindow):
             "result": result,
             "folder_paths": folder_paths,
             "kakao_file_paths": kakao_file_paths,
+            "extension_size_limits": extension_size_limits,
         }
         worker.succeeded.connect(self._handle_cost_estimation_succeeded)
         worker.failed.connect(self._handle_cost_estimation_failed)
         worker.canceled.connect(self._handle_cost_estimation_canceled)
+        worker.progress.connect(self._handle_cost_estimation_progress)
         worker.finished.connect(worker.deleteLater)
         self._cost_estimation_worker = worker
         worker.start()
 
+    @Slot(str, int, int)
+    def _handle_cost_estimation_progress(self, phase: str, completed: int, total: int) -> None:
+        if phase == "cost" and self._rag_package_progress_label is not None:
+            self._rag_package_progress_label.setText(
+                f"예상 비용 계산 중... ({completed}/{total} 파일)"
+            )
+
     @Slot(dict, list)
-    def _handle_cost_estimation_succeeded(
-        self,
-        estimate: dict,
-        parsed_emails: list,
-    ) -> None:
-        if self._rag_package_progress_box is not None:
-            self._rag_package_progress_box.hide()
+    def _handle_cost_estimation_succeeded(self, estimate: dict, parsed_emails: list) -> None:
         context = self._rag_package_context
         if context is None:
             self._finish_cost_estimation()
             return
 
-        reply = QMessageBox.question(
+        reply = _skip_confirmation_dialog(
             self,
             "인수인계패키지 생성",
             "약 {file_count}개 파일, 예상 임베딩 토큰 약 {tokens:,}개"
@@ -1988,7 +2634,6 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.StandardButton.Yes:
             self._finish_cost_estimation()
             return
-
         output_path = (
             Path.home()
             / "Desktop"
@@ -1997,14 +2642,70 @@ class MainWindow(QMainWindow):
                 f"{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             )
         )
-        self._finish_cost_estimation(restore_buttons=False)
+        context["output_path"] = str(output_path)
+        context["parsed_emails"] = parsed_emails
+        context["estimated_cost"] = max(0, int(estimate["estimated_cost_krw"]))
+        if self._rag_package_progress_label is not None:
+            self._rag_package_progress_label.setText("예상 크레딧을 예약하는 중입니다...")
+        license_code = load_saved_license_code() or ""
+        worker = PackageCreditReserveWorker(license_code, context["estimated_cost"], self)
+        worker.completed.connect(self._handle_package_reserve_completed)
+        worker.finished.connect(worker.deleteLater)
+        self._package_reserve_worker = worker
+        self._package_reserve_canceled = False
+        worker.start()
+
+    @Slot(str, object)
+    def _handle_package_reserve_completed(self, license_code: str, reserve_result: object) -> None:
+        self._package_reserve_worker = None
+        context = self._rag_package_context
+        result = reserve_result if isinstance(reserve_result, dict) else None
+        reservation_id = result.get("reservation_id") if result else None
+
+        if self._package_reserve_canceled or context is None:
+            self._package_reserve_canceled = False
+            if reservation_id:
+                self._start_package_reservation_finalize(license_code, reservation_id, cancel=True)
+            self._finish_cost_estimation()
+            return
+        if result is None:
+            self._finish_cost_estimation()
+            QMessageBox.warning(
+                self,
+                "인수인계패키지 생성",
+                "크레딧 예약 서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.",
+            )
+            return
+        if result.get("allowed") is False:
+            required = int(result.get("required_credits", context["estimated_cost"]) or 0)
+            balance = int(result.get("balance", 0) or 0)
+            self._finish_cost_estimation()
+            QMessageBox.warning(
+                self,
+                "인수인계패키지 생성",
+                "예상 크레딧이 부족합니다. "
+                f"필요: {required:,}크레딧, 보유: {balance:,}크레딧. "
+                "크레딧을 충전한 뒤 다시 시도해주세요.",
+            )
+            return
+        if not reservation_id:
+            self._finish_cost_estimation()
+            QMessageBox.warning(
+                self, "인수인계패키지 생성", "크레딧 예약 응답이 올바르지 않습니다."
+            )
+            return
+
+        self._package_reservation_id = reservation_id
+        self._package_reservation_license_code = license_code
         self._start_rag_package_worker(
             context["result"],
             context["folder_paths"],
             context["api_key"],
-            str(output_path),
-            parsed_emails,
+            context["output_path"],
+            context["parsed_emails"],
             context["kakao_file_paths"],
+            context["extension_size_limits"],
+            reuse_progress=True,
         )
 
     @Slot(str)
@@ -2044,8 +2745,14 @@ class MainWindow(QMainWindow):
         output_path: str,
         parsed_emails: list[dict],
         kakao_file_paths: list[str],
+        extension_size_limits: dict[str, int | None],
+        reuse_progress: bool = False,
     ) -> None:
-        progress_box, progress_label = self._create_rag_package_progress_dialog()
+        if reuse_progress and self._rag_package_progress_box is not None:
+            progress_box = self._rag_package_progress_box
+            progress_label = self._rag_package_progress_label
+        else:
+            progress_box, progress_label = self._create_rag_package_progress_dialog("진행 중...")
 
         worker = RagPackageWorker(
             result,
@@ -2054,6 +2761,7 @@ class MainWindow(QMainWindow):
             output_path,
             parsed_emails,
             kakao_file_paths,
+            extension_size_limits,
             self,
         )
 
@@ -2080,7 +2788,7 @@ class MainWindow(QMainWindow):
         dialog.setWindowFlags(
             Qt.WindowType.Dialog | Qt.WindowType.WindowStaysOnTopHint
         )
-        dialog.setFixedSize(360, 120)
+        dialog.setFixedSize(620, 190)
 
         label = QLabel(message, dialog)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2089,6 +2797,35 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dialog)
         layout.addStretch()
         layout.addWidget(label)
+        layout.addSpacing(18)
+
+        banner_container = QWidget(dialog)
+        banner_layout = QHBoxLayout(banner_container)
+        banner_layout.setContentsMargins(0, 0, 0, 0)
+        banner_layout.setSpacing(16)
+        for position in ("left", "right"):
+            banner_label = QLabel(banner_container)
+            banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            banner_label.setWordWrap(True)
+            banner_label.setOpenExternalLinks(False)
+            banner_label.setCursor(Qt.CursorShape.PointingHandCursor)
+            banner_label.setMinimumHeight(64)
+            banner_label.setStyleSheet(
+                "QLabel { "
+                "color: #2563EB; "
+                "background-color: rgba(245, 243, 255, 179); "
+                "border: 1px dashed #DDD6FE; "
+                "border-radius: 16px; "
+                "padding: 16px 20px; "
+                "}"
+            )
+            banner_label.linkActivated.connect(self._open_package_banner_url)
+            banner_label.hide()
+            banner_layout.addWidget(banner_label, 1)
+            dialog.banner_labels[position] = banner_label
+        banner_container.hide()
+        dialog.banner_container = banner_container
+        layout.addWidget(banner_container)
         layout.addStretch()
 
         parent_center = self.frameGeometry().center()
@@ -2102,6 +2839,72 @@ class MainWindow(QMainWindow):
         dialog.raise_()
         dialog.activateWindow()
         QApplication.processEvents()
+        if isinstance(dialog, RagPackageProgressDialog):
+            self._start_package_banner_worker(dialog)
+
+    def _start_package_banner_worker(
+        self, dialog: RagPackageProgressDialog
+    ) -> None:
+        if dialog.banner_fetch_started:
+            return
+        dialog.banner_fetch_started = True
+        worker = PackageBannerWorker(self)
+        worker.completed.connect(
+            lambda banners, target=dialog: self._apply_package_banners(
+                target, banners
+            )
+        )
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(
+            lambda target=worker: self._package_banner_workers.discard(target)
+        )
+        self._package_banner_workers.add(worker)
+        worker.start()
+
+    @Slot(str)
+    def _open_package_banner_url(self, link_url: str) -> None:
+        url = QUrl(link_url)
+        if url.isValid() and url.scheme().lower() in {"http", "https"}:
+            QDesktopServices.openUrl(url)
+
+    def _apply_package_banners(
+        self,
+        dialog: RagPackageProgressDialog,
+        banners: object,
+    ) -> None:
+        if self._rag_package_progress_box is not dialog:
+            return
+        container = dialog.banner_container
+        if container is None:
+            return
+
+        response = banners if isinstance(banners, dict) else {}
+        visible_count = 0
+        for position, label in dialog.banner_labels.items():
+            banner = response.get(position)
+            if not isinstance(banner, dict) or banner.get("active") is not True:
+                label.hide()
+                continue
+            text = str(banner.get("text") or "").strip()
+            link_url = str(banner.get("linkUrl") or "").strip()
+            url = QUrl(link_url)
+            if (
+                not text
+                or not url.isValid()
+                or url.scheme().lower() not in {"http", "https"}
+            ):
+                label.hide()
+                continue
+            safe_text = html.escape(text)
+            safe_url = html.escape(link_url, quote=True)
+            label.setText(
+                f'<a href="{safe_url}" style="color:#2563EB; '
+                f'text-decoration:underline;"><span style="font-size:12px;">'
+                f"{safe_text}</span></a>"
+            )
+            label.show()
+            visible_count += 1
+        container.setVisible(visible_count > 0)
 
     def _request_rag_package_cancel(self) -> None:
         if self._rag_package_progress_label is not None:
@@ -2110,6 +2913,8 @@ class MainWindow(QMainWindow):
             self._rag_package_worker.request_cancel()
         if self._cost_estimation_worker is not None:
             self._cost_estimation_worker.request_cancel()
+        if self._package_reserve_worker is not None:
+            self._package_reserve_canceled = True
         QApplication.processEvents()
 
     @Slot(str, int, int)
@@ -2125,28 +2930,30 @@ class MainWindow(QMainWindow):
             self._rag_package_progress_label.setText(
                 f"임베딩 처리 중... ({current}/{total} 배치)"
             )
+        elif stage == "resume":
+            self._rag_package_progress_label.setText(
+                f"이전 진행 상황에서 이어서 진행합니다 ({current + 1}번째 파일부터)"
+            )
         else:
             self._rag_package_progress_label.setText(
                 f"파일 처리 중... ({current}/{total} 파일)"
             )
 
-    @Slot(str, int, int)
+    @Slot(str, int, int, int)
     def _handle_rag_package_succeeded(
         self,
         saved_path: str,
         failed_chunk_count: int,
         embedding_tokens: int,
+        timed_out_file_count: int,
     ) -> None:
         self._finish_rag_package_worker()
-        consume_credits(
-            load_saved_license_code() or "",
-            "package",
-            embedding_tokens=embedding_tokens,
-        )
-        self._refresh_credit_balance()
+        self._finalize_package_reservation(embedding_tokens=embedding_tokens)
         message = f"패키지가 생성되었습니다: {saved_path}"
         if failed_chunk_count:
             message += f"\n\n{failed_chunk_count}개 청크는 임베딩 실패로 제외되었습니다."
+        if timed_out_file_count:
+            message += f"\n\n{timed_out_file_count}개 파일은 처리 시간 초과로 건너뛰었습니다."
         QMessageBox.information(
             self,
             "인수인계패키지 생성",
@@ -2155,6 +2962,7 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _handle_rag_package_failed(self, error_message: str) -> None:
+        self._finalize_package_reservation(cancel=True)
         self._finish_rag_package_worker()
         QMessageBox.critical(
             self,
@@ -2164,6 +2972,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _handle_rag_package_canceled(self) -> None:
+        self._finalize_package_reservation(cancel=True)
         self._finish_rag_package_worker()
         QMessageBox.information(
             self,
@@ -2183,6 +2992,40 @@ class MainWindow(QMainWindow):
         self._rag_package_progress_label = None
         self._set_all_buttons_enabled(True)
         self._rag_package_worker = None
+        self._rag_package_context = None
+
+    def _finalize_package_reservation(
+        self, *, embedding_tokens: int = 0, cancel: bool = False
+    ) -> None:
+        reservation_id = self._package_reservation_id
+        license_code = self._package_reservation_license_code
+        self._package_reservation_id = None
+        self._package_reservation_license_code = None
+        if reservation_id and license_code:
+            self._start_package_reservation_finalize(
+                license_code,
+                reservation_id,
+                embedding_tokens=embedding_tokens,
+                cancel=cancel,
+            )
+
+    def _start_package_reservation_finalize(
+        self,
+        license_code: str,
+        reservation_id: str,
+        *,
+        embedding_tokens: int = 0,
+        cancel: bool = False,
+    ) -> None:
+        worker = PackageCreditFinalizeWorker(
+            license_code,
+            reservation_id,
+            embedding_tokens=embedding_tokens,
+            cancel=cancel,
+            parent=self,
+        )
+        worker.completed.connect(self._apply_credit_balance)
+        self._track_credit_worker(worker)
 
     def _build_merged_analysis_result(self, folder_paths: list[str]) -> AnalysisResult:
         if len(folder_paths) == 1:
@@ -2587,12 +3430,10 @@ class MainWindow(QMainWindow):
 
     def _mark_report_saved(self) -> None:
         self._last_saved_report_fingerprint = self._build_report_state_fingerprint()
-        self._update_rag_package_button_enabled()
 
     def _mark_report_unsaved(self) -> None:
         self._last_saved_report_fingerprint = None
         self._last_saved_word_path = None
-        self._update_rag_package_button_enabled()
 
     def _build_report_state_fingerprint(self) -> str:
         result = self.current_analysis_result
@@ -2666,7 +3507,7 @@ class MainWindow(QMainWindow):
         if Path(output_path).suffix.lower() != ".docx":
             output_path = f"{output_path}.docx"
 
-        if not self._refresh_ai_results_before_word_save():
+        if not self._refresh_ai_results_before_word_save(output_path, True):
             return False
         email_file_paths = self._get_selected_email_file_paths()
         parsed_emails, _ = (
@@ -2729,7 +3570,7 @@ class MainWindow(QMainWindow):
         if Path(output_path).suffix.lower() != ".docx":
             output_path = f"{output_path}.docx"
 
-        if not self._refresh_ai_results_before_word_save():
+        if not self._refresh_ai_results_before_word_save(output_path, False):
             return
         email_file_paths = self._get_selected_email_file_paths()
         parsed_emails, _ = (
@@ -2804,7 +3645,9 @@ class MainWindow(QMainWindow):
 
         return clicked_button is not None and clicked_button != cancel_button
 
-    def _refresh_ai_results_before_word_save(self) -> bool:
+    def _refresh_ai_results_before_word_save(
+        self, output_path: str, close_memo_dialog: bool
+    ) -> bool | None:
         result = self.current_analysis_result
         if result is None or result.analysismode != "ai":
             return True
@@ -2820,17 +3663,6 @@ class MainWindow(QMainWindow):
         ]
         if not pending_memos:
             return True
-
-        license_code = load_saved_license_code() or ""
-        for _memo in pending_memos:
-            precheck = precheck_action(license_code, "report")
-            if precheck is not None and precheck.get("allowed") is False:
-                QMessageBox.warning(
-                    self,
-                    "인수인계서 저장",
-                    "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요.",
-                )
-                return False
 
         progress_box = QMessageBox(self)
         progress_box.setIcon(QMessageBox.Icon.NoIcon)
@@ -2848,28 +3680,79 @@ class MainWindow(QMainWindow):
         parsed_emails, _ = (
             process_email_files(email_file_paths) if email_file_paths else ([], 0)
         )
+        worker = ReportAiWorker(
+            pending_memos,
+            result.all_files,
+            result.root_folder_path,
+            parsed_emails,
+            load_saved_license_code() or "",
+            self,
+        )
+        worker.succeeded.connect(self._handle_report_ai_succeeded)
+        worker.denied.connect(self._handle_report_ai_denied)
+        worker.failed.connect(self._handle_report_ai_failed)
+        worker.finished.connect(worker.deleteLater)
+        self._pending_word_save = (output_path, close_memo_dialog)
+        self._report_ai_progress_box = progress_box
+        self._report_ai_worker = worker
+        worker.start()
+        return None
 
+    @Slot(object)
+    def _handle_report_ai_succeeded(self, license_code: str, balance: object) -> None:
+        pending_save = self._finish_report_ai_worker()
+        self._apply_credit_balance(license_code, balance)
+        if pending_save is not None:
+            output_path, close_memo_dialog = pending_save
+            if self._save_word_to_path(output_path) and close_memo_dialog:
+                if self._memo_dialog is not None:
+                    self._memo_dialog.accept()
+
+    @Slot()
+    def _handle_report_ai_denied(self) -> None:
+        self._finish_report_ai_worker()
+        QMessageBox.warning(
+            self,
+            "인수인계서 저장",
+            "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요.",
+        )
+
+    @Slot(str)
+    def _handle_report_ai_failed(self, error_message: str) -> None:
+        self._finish_report_ai_worker()
+        QMessageBox.critical(self, "인수인계서 저장", f"AI 분석에 실패했습니다.\n{error_message}")
+
+    def _finish_report_ai_worker(self) -> tuple[str, bool] | None:
+        pending_save = self._pending_word_save
+        self._pending_word_save = None
+        self._report_ai_worker = None
+        if self._report_ai_progress_box is not None:
+            self._report_ai_progress_box.hide()
+            self._report_ai_progress_box.deleteLater()
+            self._report_ai_progress_box = None
+        self._set_all_buttons_enabled(True)
+        if self._memo_dialog is not None:
+            self._memo_dialog._set_all_dialog_buttons_enabled(True)
+        return pending_save
+
+    def _save_word_to_path(self, output_path: str) -> bool:
+        email_file_paths = self._get_selected_email_file_paths()
+        parsed_emails, _ = (
+            process_email_files(email_file_paths) if email_file_paths else ([], 0)
+        )
         try:
-            for memo in pending_memos:
-                ai_result = get_or_refresh_ai_result(
-                    memo, result.all_files, result.root_folder_path, parsed_emails
-                )
-                if ai_result is not None:
-                    usage = ai_result.get("_usage", {})
-                    consume_credits(
-                        license_code,
-                        "report",
-                        prompt_tokens=usage.get("prompt_tokens", 0),
-                        completion_tokens=usage.get("completion_tokens", 0),
-                    )
-                QApplication.processEvents()
-        finally:
-            # QMessageBox.close() is a no-op when it has no standard buttons
-            # (no escape/default button to route the close through), so the
-            # box never actually disappears. hide() always works.
-            progress_box.hide()
-            self._set_all_buttons_enabled(True)
-        self._refresh_credit_balance()
+            save_analysis_result_as_word(
+                self.current_analysis_result,
+                output_path,
+                self.current_analysis_analyzed_at,
+                parsed_emails,
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "인수인계서 저장", f"저장에 실패했습니다.\n{exc}")
+            return False
+        QMessageBox.information(self, "인수인계서 저장", "인수인계서가 저장되었습니다.")
+        self._last_saved_word_path = output_path
+        self._mark_report_saved()
         return True
 
     def _set_all_buttons_enabled(self, enabled: bool) -> None:
@@ -2900,7 +3783,6 @@ class MainWindow(QMainWindow):
             return
         if enabled:
             self._refresh_api_key_button_state()
-            self._update_rag_package_button_enabled()
 
     def _validate_memos_for_report(self) -> bool:
         if self.current_analysis_result is None:

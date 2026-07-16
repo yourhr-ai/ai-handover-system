@@ -1,5 +1,5 @@
 {
-  "license_code": "PENDING-006-Y1-5C98D1E2",
+  "license_code": "PENDING-011-M1-B528604A",
   "first_use_records": {
     "PENDING-005-Y1-4D4178B3": {
       "first_used_at": "2026-07-10T15:57:53",
@@ -10,6 +10,26 @@
       "first_used_at": "2026-07-10T16:01:15",
       "expiry_at": "2027-07-10T16:01:15",
       "checksum": "2a2cd0a4"
+    },
+    "PENDING-013-M2-DC3F8A71": {
+      "first_used_at": "2026-07-12T12:04:32",
+      "expiry_at": "2026-09-12T12:04:32",
+      "checksum": "28c058a5"
+    },
+    "PENDING-011-M1-B528604A": {
+      "first_used_at": "2026-07-13T14:37:18",
+      "expiry_at": "2026-08-13T14:37:18",
+      "checksum": "01653700"
+    },
+    "PENDING-010-M1-F5BB79D9": {
+      "first_used_at": "2026-07-13T15:24:38",
+      "expiry_at": "2026-08-13T15:24:38",
+      "checksum": "cce5ca6f"
+    },
+    "PENDING-019-M1-1925B03B": {
+      "first_used_at": "2026-07-14T21:21:06",
+      "expiry_at": "2026-08-14T21:21:06",
+      "checksum": "58df2cee"
     }
   }
 }

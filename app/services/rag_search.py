@@ -1,16 +1,25 @@
-import json
 import re
+import time
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from difflib import SequenceMatcher
+from typing import Any, Callable
 
 import numpy as np
 from openai import APIError, OpenAI, RateLimitError
 
-from app.config import GPT_MODEL
+from app.config import CHAT_MODEL, CHAT_REASONING_EFFORT
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 OPENAI_MAX_RETRIES = 5
-MAX_RELATED_ANSWERS = 2
+MAX_RELATED_ANSWERS = 1
+DEFAULT_TOP_K = 12
+MAX_SEARCH_RESULTS = 16
+ANSWER_MAX_COMPLETION_TOKENS = 500
+CONFIDENCE_CERTAIN_THRESHOLD = 0.55
+CONFIDENCE_ESTIMATED_THRESHOLD = 0.42
+UNRELATED_SIMILARITY_THRESHOLD = 0.34
+FILENAME_PARTIAL_MATCH_THRESHOLD = 0.58
 SYSTEM_PROMPT = (
     "\ub2f9\uc2e0\uc740 \ud1f4\uc0ac\uc790\uc758 \uc5c5\ubb34\ub97c \uc778\uc218\ubc1b\uc740 \ud6c4\uc784\uc790\ub97c \ub3d5\ub294 AI "
     "\uc5b4\uc2dc\uc2a4\ud134\ud2b8\uc785\ub2c8\ub2e4. \uc544\ub798 \uc81c\uacf5\ub41c \uc790\ub8cc(\uad00\ub828 \ubb38\uc11c/\uc774\uba54\uc77c/"
@@ -51,11 +60,29 @@ SYSTEM_PROMPT += (
     "related 항목은 실제 검색된 자료에 근거해야 하며 지어내지 마세요. "
     "related의 answer에는 단순히 '관련 자료로 검색됨'이라고 쓰지 말고, 이 파일이 왜 관련 있는지와 "
     "청크 텍스트에 실제로 어떤 내용이 담겨 있는지 1~2문장으로 구체적으로 요약하세요. "
+    "목록형 답변은 검색 결과 개수나 top_k와 무관하게 최종 출력 단계에서만 간결하게 요약하세요. "
+    "검색된 청크와 파일은 답변 근거를 판단할 때 그대로 모두 검토하되, 검색 자체를 줄이거나 생략하지 마세요. "
+    "파일 목록이나 항목을 나열할 때는 primary.answer와 각 related(관련 자료)의 answer 모두에서 "
+    "관련도가 높은 순으로 최대 5개까지만 구체적으로 나열하세요. 5개를 초과하면 더 나열하지 말고, "
+    "반드시 '외 N개 파일이 더 있습니다. 전체 목록은 원본 폴더에서 확인하실 수 있습니다'라고 "
+    "남은 개수를 요약하세요. primary.answer와 related 양쪽에 이 규칙을 각각 적용하세요. "
     "질문에 직접 답하는 정보가 없으면 어떤 내용은 확인되지만 질문의 핵심 정보는 언급되지 않는다고 명확히 쓰세요. "
     "완전히 무관한 질문이면 primary만 확인불가로 두고 related는 빈 배열로 두세요. "
     '{"primary": {"confidence": "확실함|확인 필요|추정|확인불가", "answer": "...", "used_sources": [...]}, '
     '"related": [{"confidence": "확실함|확인 필요|추정", "answer": "...", "used_sources": [...]}]}'
 )
+# The model writes only the answer body. Confidence, sources, and related material
+# are deterministic UI metadata assembled from the retrieved chunks below.
+SYSTEM_PROMPT = """당신은 퇴사자의 업무를 인수받은 후임자를 돕는 AI 어시스턴트입니다.
+제공된 자료만 근거로 질문에 대한 답변 본문만 작성하세요. JSON, 신뢰도,
+출처 목록, 관련 자료 목록은 작성하지 마세요. 파일 경로나 수정일을 임의로
+추측하지 말고, 자료에 없는 내용은 지어내지 마세요.
+
+동일한 근거를 여러 번 반복하지 말고 결론과 핵심 근거 1~2개만 간결하게
+제시하세요. 확인되지 않는 내용은 장황하게 설명하지 말고
+'제공된 자료에서 확인되지 않습니다.'라고 짧게 답하세요. 목록이 필요해도
+핵심 항목을 최대 5개까지만 제시하세요."""
+
 LOCATION_QUERY_KEYWORDS = ("\uc704\uce58", "\uacbd\ub85c", "\uc5b4\ub514", "\ud3f4\ub354")
 DATE_RANKING_QUERY_KEYWORDS = (
     "\ucd5c\uadfc",
@@ -169,6 +196,128 @@ class _QueryEmbedding(list):
         self.usage_tokens = usage_tokens
 
 
+@dataclass(slots=True)
+class ChunkSearchIndex:
+    chunks: list[dict]
+    matrix: np.ndarray
+    matrix_norms: np.ndarray
+    source_token_index: dict[str, set[str]]
+    source_tokens: list[set[str]]
+    file_names_casefold: list[str]
+    chunk_texts_casefold: list[str]
+
+
+def build_chunk_search_index(
+    chunks: list[dict],
+    *,
+    progress_callback: Callable[[str, int], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    discard_embeddings: bool = False,
+) -> ChunkSearchIndex:
+    """Build immutable per-package search data that can be reused for every question."""
+    dimension_counts: dict[int, int] = {}
+    for chunk_index, chunk in enumerate(chunks, start=1):
+        if chunk_index % 500 == 0:
+            if cancel_check is not None and cancel_check():
+                raise InterruptedError("package load cancelled")
+            if progress_callback is not None:
+                progress_callback("index", chunk_index)
+            time.sleep(0.001)
+        embedding = chunk.get("embedding")
+        if embedding is None:
+            embedding = chunk.get("embedding_vector")
+        if not isinstance(embedding, list) or not embedding:
+            continue
+        dimension_counts[len(embedding)] = dimension_counts.get(len(embedding), 0) + 1
+
+    embedding_size = max(dimension_counts, key=dimension_counts.get) if dimension_counts else 0
+    valid_chunks = [
+        chunk
+        for chunk in chunks
+        if embedding_size > 0
+        and isinstance(chunk.get("embedding") or chunk.get("embedding_vector"), list)
+        and len(chunk.get("embedding") or chunk.get("embedding_vector")) == embedding_size
+    ]
+
+    if valid_chunks:
+        matrix = np.empty((len(valid_chunks), embedding_size), dtype=np.float32)
+        matrix_norms = np.empty((len(valid_chunks),), dtype=np.float32)
+        batch_size = 256
+        for start in range(0, len(valid_chunks), batch_size):
+            if cancel_check is not None and cancel_check():
+                raise InterruptedError("package load cancelled")
+            end = min(start + batch_size, len(valid_chunks))
+            batch = np.asarray(
+                [
+                    chunk.get("embedding") or chunk.get("embedding_vector")
+                    for chunk in valid_chunks[start:end]
+                ],
+                dtype=np.float32,
+            )
+            matrix[start:end] = batch
+            matrix_norms[start:end] = np.linalg.norm(batch, axis=1)
+            # The dense float32 matrix is the runtime representation. Keeping the
+            # original JSON lists (Python float objects) multiplies memory usage and
+            # can make Windows page heavily enough for the GUI to appear hung.
+            if discard_embeddings:
+                for chunk in valid_chunks[start:end]:
+                    chunk.pop("embedding", None)
+                    chunk.pop("embedding_vector", None)
+            if progress_callback is not None:
+                progress_callback("matrix", end)
+            time.sleep(0.001)
+    else:
+        matrix = np.empty((0, 0), dtype=np.float32)
+        matrix_norms = np.empty((0,), dtype=np.float32)
+
+    source_tokens: list[set[str]] = []
+    file_names_casefold: list[str] = []
+    chunk_texts_casefold: list[str] = []
+    for source_index, chunk in enumerate(valid_chunks, start=1):
+        source_tokens.append(_source_tokens_for_chunk(chunk))
+        file_names_casefold.append(_chunk_file_name(chunk).casefold())
+        chunk_texts_casefold.append(
+            str(chunk.get("chunk_text") or "").casefold()
+        )
+        if source_index % 100 == 0:
+            if cancel_check is not None and cancel_check():
+                raise InterruptedError("package load cancelled")
+            if progress_callback is not None:
+                progress_callback("metadata", source_index)
+            time.sleep(0.001)
+
+    source_token_index: dict[str, set[str]] = {}
+    for source_index, (chunk, tokens) in enumerate(
+        zip(valid_chunks, source_tokens), start=1
+    ):
+        if source_index % 100 == 0:
+            if cancel_check is not None and cancel_check():
+                raise InterruptedError("package load cancelled")
+            if progress_callback is not None:
+                progress_callback("metadata", source_index)
+            time.sleep(0.001)
+        source_key = str(
+            chunk.get("source_path")
+            or chunk.get("source_file")
+            or chunk.get("chunk_id")
+            or ""
+        )
+        if _is_internal_summary_chunk(chunk):
+            continue
+        for token in tokens:
+            source_token_index.setdefault(token, set()).add(source_key)
+
+    return ChunkSearchIndex(
+        chunks=valid_chunks,
+        matrix=matrix,
+        matrix_norms=matrix_norms,
+        source_token_index=source_token_index,
+        source_tokens=source_tokens,
+        file_names_casefold=file_names_casefold,
+        chunk_texts_casefold=chunk_texts_casefold,
+    )
+
+
 def embed_query(query: str, api_key: str) -> list[float]:
     client = _create_openai_client(api_key)
     response = client.embeddings.create(
@@ -194,60 +343,70 @@ def _temporary_api_failure_answer() -> dict:
 
 def search_relevant_chunks(
     query_embedding: list[float],
-    chunks: list[dict],
-    top_k: int = 20,
+    chunks: list[dict] | None = None,
+    top_k: int = DEFAULT_TOP_K,
     min_similarity: float = 0.3,
     query: str = "",
+    search_index: ChunkSearchIndex | None = None,
 ) -> list[dict]:
-    if not query_embedding or not chunks or top_k <= 0:
+    if search_index is None:
+        search_index = build_chunk_search_index(chunks or [])
+    if not query_embedding or not search_index.chunks or top_k <= 0:
         return []
 
     query_vector = np.asarray(query_embedding, dtype=np.float32)
-    if query_vector.ndim != 1:
+    if (
+        query_vector.ndim != 1
+        or search_index.matrix.ndim != 2
+        or search_index.matrix.shape[1] != len(query_vector)
+    ):
         return []
 
-    valid_chunks: list[dict] = []
-    vectors: list[list[float]] = []
-    for chunk in chunks:
-        embedding = chunk.get("embedding")
-        if embedding is None:
-            embedding = chunk.get("embedding_vector")
-        if not isinstance(embedding, list) or len(embedding) != len(query_vector):
-            continue
-        valid_chunks.append(chunk)
-        vectors.append(embedding)
-
-    if not vectors:
-        return []
-
-    matrix = np.asarray(vectors, dtype=np.float32)
+    valid_chunks = search_index.chunks
+    matrix = search_index.matrix
     query_norm = np.linalg.norm(query_vector)
-    matrix_norms = np.linalg.norm(matrix, axis=1)
-    denominator = matrix_norms * query_norm
+    denominator = search_index.matrix_norms * query_norm
     similarities = np.divide(
         matrix @ query_vector,
         denominator,
-        out=np.zeros_like(matrix_norms, dtype=np.float32),
+        out=np.zeros_like(search_index.matrix_norms, dtype=np.float32),
         where=denominator != 0,
     )
 
     query_text = query or str(getattr(query_embedding, "query", ""))
+    query_terms = _extract_indexed_query_terms(
+        query_text,
+        valid_chunks,
+        source_index=search_index.source_token_index,
+    )
     eligible_indices = np.flatnonzero(similarities >= min_similarity)
     exact_file_name_indices = _find_exact_file_name_keyword_indices(
         query_text,
         valid_chunks,
         similarities,
+        query_terms=query_terms,
+        file_names_casefold=search_index.file_names_casefold,
     )
-    file_keyword_indices = _find_file_name_keyword_indices(query_text, valid_chunks)
-    text_keyword_indices = _find_exact_text_keyword_indices(query_text, valid_chunks)
-    content_keyword_indices = _find_content_keyword_indices(query_text, valid_chunks)
+    file_keyword_indices = _find_file_name_keyword_indices(
+        query_text,
+        valid_chunks,
+        query_terms=query_terms,
+        source_tokens=search_index.source_tokens,
+    )
+    content_keyword_indices = _find_content_keyword_indices(
+        query_text,
+        valid_chunks,
+        query_terms=query_terms,
+        source_tokens=search_index.source_tokens,
+        chunk_texts_casefold=search_index.chunk_texts_casefold,
+    )
     top_indices = _build_additive_candidate_indices(
         eligible_indices,
         similarities,
         top_k,
         exact_file_name_indices,
         content_keyword_indices,
-        max_total=30,
+        max_total=MAX_SEARCH_RESULTS,
     )
     if not top_indices:
         return []
@@ -366,65 +525,73 @@ def generate_answer(
     query: str,
     relevant_chunks: list[dict],
     api_key: str,
+    on_answer_delta: Callable[[str], None] | None = None,
 ) -> dict:
-    if not relevant_chunks:
-        return {
-            "confidence": "확인불가",
-            "answer": "제공된 자료에서 확인되지 않습니다.",
-            "sources": [],
-        }
+    if not relevant_chunks or not _has_relevant_evidence(query, relevant_chunks):
+        return _not_found_answer()
 
     client = _create_openai_client(api_key)
+    raw_parts: list[str] = []
+    prompt_tokens = 0
+    completion_tokens = 0
     try:
-        response = client.chat.completions.create(
-            model=GPT_MODEL,
+        response_stream = client.chat.completions.create(
+            model=CHAT_MODEL,
+            reasoning_effort=CHAT_REASONING_EFFORT,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": _build_user_message(query, relevant_chunks)},
             ],
-            response_format={"type": "json_object"},
+            max_completion_tokens=ANSWER_MAX_COMPLETION_TOKENS,
+            stream=True,
+            stream_options={"include_usage": True},
         )
+        for event in response_stream:
+            usage = getattr(event, "usage", None)
+            if usage is not None:
+                prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or prompt_tokens)
+                completion_tokens = int(
+                    getattr(usage, "completion_tokens", 0) or completion_tokens
+                )
+            choices = getattr(event, "choices", None) or []
+            if not choices:
+                continue
+            content = getattr(getattr(choices[0], "delta", None), "content", None)
+            if not content:
+                continue
+            delta = str(content)
+            raw_parts.append(delta)
+            if on_answer_delta is not None:
+                on_answer_delta(delta)
     except RateLimitError:
         print("API 요청이 많아 잠시 대기 중입니다...")
         return _temporary_api_failure_answer()
     except APIError:
         return _temporary_api_failure_answer()
 
-    raw_content = response.choices[0].message.content or "{}"
-    try:
-        parsed = json.loads(raw_content)
-    except json.JSONDecodeError:
-        parsed = {"confidence": "확인불가", "answer": raw_content, "used_sources": []}
-
-    primary = _extract_primary_answer(parsed)
+    answer = "".join(raw_parts).strip()
     usage_result = {
-        "prompt_tokens": int(getattr(response.usage, "prompt_tokens", 0) or 0),
-        "completion_tokens": int(getattr(response.usage, "completion_tokens", 0) or 0),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
     }
-    confidence = _normalize_confidence(primary.get("confidence"))
-    found = confidence != "확인불가" and bool(primary.get("found", True))
-    answer = str(primary.get("answer") or "").strip()
-    if not found or confidence == "확인불가":
-        corrected = _correct_unavailable_placeholder_answer(query, answer, relevant_chunks)
-        if corrected is not None:
-            corrected["_usage"] = usage_result
-            return corrected
-        return {
-            "confidence": "확인불가",
-            "answer": answer,
-            "sources": [],
-            "related": [],
-            "_usage": usage_result,
-        }
-
-    sources = _normalize_sources(primary.get("used_sources"), relevant_chunks)
-    related = _normalize_related_answers(parsed.get("related"), relevant_chunks)
-    related = _supplement_related_from_filename_matches(
-        query,
-        relevant_chunks,
-        sources,
-        related,
-    )
+    if not answer:
+        answer = "제공된 자료에서 확인되지 않습니다."
+    if (
+        _looks_unavailable_answer(answer)
+        and _best_filename_match(query, relevant_chunks) < FILENAME_PARTIAL_MATCH_THRESHOLD
+        and _best_query_overlap(query, relevant_chunks) < 0.34
+    ):
+        unavailable = _not_found_answer()
+        unavailable["_usage"] = usage_result
+        return unavailable
+    confidence = _confidence_from_chunks(relevant_chunks)
+    if confidence in {"확인 필요", "확인불가", "확인 불가"}:
+        sources: list[str] = []
+        related: list[dict] = []
+    else:
+        primary_chunks, related_chunks = _split_local_evidence(query, relevant_chunks)
+        sources = _unique_sources(primary_chunks)
+        related = _build_local_related(related_chunks)
     return {
         "confidence": confidence,
         "answer": answer,
@@ -432,6 +599,171 @@ def generate_answer(
         "related": related,
         "_usage": usage_result,
     }
+
+
+def _not_found_answer() -> dict:
+    return {
+        "confidence": "확인불가",
+        "answer": "관련된 자료를 찾을 수 없습니다.",
+        "sources": [],
+        "related": [],
+        "_usage": {"prompt_tokens": 0, "completion_tokens": 0},
+    }
+
+
+def _confidence_from_chunks(chunks: list[dict]) -> str:
+    top_score = max((float(chunk.get("similarity_score") or 0) for chunk in chunks), default=0.0)
+    if top_score >= CONFIDENCE_CERTAIN_THRESHOLD:
+        return "확실함"
+    if top_score >= CONFIDENCE_ESTIMATED_THRESHOLD:
+        return "추정"
+    return "확인 필요"
+
+
+def _has_relevant_evidence(query: str, chunks: list[dict]) -> bool:
+    if _is_external_fact_query(query):
+        return False
+    real_chunks = [chunk for chunk in chunks if not _is_internal_summary_chunk(chunk)]
+    top_score = max((float(chunk.get("similarity_score") or 0) for chunk in real_chunks), default=0.0)
+    filename_match = _best_filename_match(query, real_chunks)
+    if _looks_like_explicit_file_query(query) and filename_match < FILENAME_PARTIAL_MATCH_THRESHOLD:
+        return False
+    return filename_match >= FILENAME_PARTIAL_MATCH_THRESHOLD or top_score >= UNRELATED_SIMILARITY_THRESHOLD
+
+
+def _is_external_fact_query(query: str) -> bool:
+    normalized = re.sub(r"\s+", " ", query.casefold())
+    return (
+        "날씨" in normalized
+        or "주가" in normalized
+        or ("업계" in normalized and ("몇 등" in normalized or "순위" in normalized))
+    )
+
+
+def _looks_like_explicit_file_query(query: str) -> bool:
+    return bool(
+        re.search(r"\.[a-z0-9]{1,5}\b", query, flags=re.IGNORECASE)
+        or re.search(r"[_-].*\d{4,}", query)
+        or ("파일" in query and any(char.isdigit() for char in query))
+    )
+
+
+def _best_query_overlap(query: str, chunks: list[dict]) -> float:
+    stopwords = set(QUERY_STOPWORDS) | set(GENERIC_QUERY_TERMS)
+    stopwords.update({"회사", "이", "그", "어때", "얼마", "몇", "누구", "다음", "이번"})
+    terms = [
+        term
+        for term in (_strip_common_suffix(value) for value in _extract_query_terms(query))
+        if len(term) >= 2 and term not in stopwords and not _is_noise_term(term)
+    ]
+    terms = _deduplicate_terms(terms)
+    if not terms:
+        return 0.0
+    searchable = " ".join(
+        f"{chunk.get('file_name', '')} {str(chunk.get('chunk_text') or '')[:5000]}".casefold()
+        for chunk in chunks
+    )
+    return sum(term.casefold() in searchable for term in terms) / len(terms)
+
+
+def _best_filename_match(query: str, chunks: list[dict]) -> float:
+    query_key = _filename_match_key(query)
+    if not query_key:
+        return 0.0
+    best = 0.0
+    for chunk in chunks:
+        name_key = _filename_match_key(str(chunk.get("file_name") or ""))
+        if not name_key:
+            continue
+        if name_key in query_key or query_key in name_key:
+            return 1.0
+        best = max(best, SequenceMatcher(None, query_key, name_key).ratio())
+    return best
+
+
+def _filename_match_key(value: str) -> str:
+    value = re.sub(r"\.[a-z0-9]{1,5}$", "", value.casefold())
+    value = re.sub(r"(?:내용|알려줘|알려주세요|파일|시트|에서|에는|의)", "", value)
+    return re.sub(r"[^0-9a-z가-힣]", "", value)
+
+
+def _split_local_evidence(query: str, chunks: list[dict]) -> tuple[list[dict], list[dict]]:
+    unique: list[dict] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        if _is_internal_summary_chunk(chunk):
+            continue
+        source = _format_source(chunk)
+        if not source or source in seen:
+            continue
+        seen.add(source)
+        unique.append(chunk)
+    unique.sort(
+        key=lambda chunk: (
+            _best_filename_match(query, [chunk]),
+            _best_query_overlap(query, [chunk]),
+            float(chunk.get("similarity_score") or 0),
+        ),
+        reverse=True,
+    )
+    return unique[:3], unique[3:4]
+
+
+def _build_local_related(chunks: list[dict]) -> list[dict]:
+    return [
+        {
+            "confidence": _confidence_from_chunks([chunk]),
+            "answer": _format_source(chunk),
+            "sources": [],
+        }
+        for chunk in chunks[:MAX_RELATED_ANSWERS]
+    ]
+
+
+def _extract_streamed_primary_answer(raw_content: str) -> str:
+    """Return the complete, currently decodable prefix of the primary answer JSON string."""
+    primary_match = re.search(r'"primary"\s*:\s*\{', raw_content)
+    search_start = primary_match.end() if primary_match else 0
+    answer_match = re.search(r'"answer"\s*:\s*"', raw_content[search_start:])
+    if answer_match is None:
+        return ""
+
+    start = search_start + answer_match.end()
+    decoded: list[str] = []
+    index = start
+    escapes = {
+        '"': '"',
+        "\\": "\\",
+        "/": "/",
+        "b": "\b",
+        "f": "\f",
+        "n": "\n",
+        "r": "\r",
+        "t": "\t",
+    }
+    while index < len(raw_content):
+        character = raw_content[index]
+        if character == '"':
+            break
+        if character != "\\":
+            decoded.append(character)
+            index += 1
+            continue
+        if index + 1 >= len(raw_content):
+            break
+        escape = raw_content[index + 1]
+        if escape == "u":
+            code = raw_content[index + 2 : index + 6]
+            if len(code) < 4 or not all(
+                character in "0123456789abcdefABCDEF" for character in code
+            ):
+                break
+            decoded.append(chr(int(code, 16)))
+            index += 6
+            continue
+        decoded.append(escapes.get(escape, escape))
+        index += 2
+    return "".join(decoded)
 
 
 def _build_search_result(chunk: dict, similarity_score: float) -> dict:
@@ -508,44 +840,34 @@ def _build_user_message(query: str, relevant_chunks: list[dict]) -> str:
     lines = ["\uc9c8\ubb38:", query, "", "\uad00\ub828 \uc790\ub8cc:"]
     if not relevant_chunks:
         lines.append("(\uac80\uc0c9\ub41c \uad00\ub828 \uc790\ub8cc \uc5c6\uc74c)")
-    for index, chunk in enumerate(relevant_chunks, start=1):
+    grouped: dict[tuple[str, str, str], list[dict]] = {}
+    for chunk in relevant_chunks:
+        key = (
+            str(chunk.get("file_name") or ""),
+            str(chunk.get("source_path") or ""),
+            str(chunk.get("modified_at") or ""),
+        )
+        grouped.setdefault(key, []).append(chunk)
+
+    chunk_number = 0
+    for file_number, ((file_name, source_path, modified_at), file_chunks) in enumerate(
+        grouped.items(), start=1
+    ):
         lines.extend(
             [
-                f"[\uc790\ub8cc {index}]",
-                f"\ud30c\uc77c\uba85: {chunk.get('file_name', '')}",
-                f"\uacbd\ub85c: {chunk.get('source_path', '')}",
-                f"\uc218\uc815\uc77c: {chunk.get('modified_at', '')}",
-                f"\uc720\uc0ac\ub3c4: {chunk.get('similarity_score', 0):.4f}",
-                "\ub0b4\uc6a9:",
-                (
-                    f"[\ucd9c\ucc98: {chunk.get('file_name', '')} | "
-                    f"\uacbd\ub85c: {chunk.get('source_path', '')} | "
-                    f"\uc218\uc815\uc77c: {chunk.get('modified_at', '')}]"
-                ),
-                (
-                    f"[파일명: {chunk.get('file_name', '')}, "
-                    f"수정일: {chunk.get('modified_at', '')}, "
-                    f"유사도: {chunk.get('similarity_score', 0):.4f}]"
-                ),
-                str(chunk.get("chunk_text") or ""),
-                "",
+                f"[파일 {file_number}] {file_name}",
+                f"경로: {source_path}" if source_path else "경로: 확인되지 않음",
+                f"수정일: {modified_at}" if modified_at else "수정일: 확인되지 않음",
             ]
         )
+        for chunk in file_chunks:
+            chunk_number += 1
+            lines.extend([f"[청크 {chunk_number}]", str(chunk.get("chunk_text") or "")])
+        lines.append("")
     lines.extend(
         [
-            "\ubc18\ub4dc\uc2dc JSON \uac1d\uccb4\ub85c\ub9cc \ub2f5\ud558\uc138\uc694.",
-            (
-                '{"primary": {"confidence": "확실함|확인 필요|추정|확인불가", '
-                '"answer": "질문에 가장 직접적으로 답하는 내용", '
-                '"used_sources": ["실제로 primary 답변에 사용한 파일명/이메일제목/메모제목"]}, '
-                '"related": [{"confidence": "확실함|확인 필요|추정", '
-                '"answer": "이 파일이 왜 관련 있는지와 실제 청크 내용 요약. 직접 답이 없으면 무엇은 확인되고 무엇은 언급되지 않는지 설명", '
-                '"used_sources": ["실제로 related 항목에 사용한 파일명/이메일제목/메모제목"]}]}'
-            ),
-            (
-                "답을 찾지 못했고 검색 자료도 질문과 무관하다면 "
-                '{"primary": {"confidence": "확인불가", "answer": "제공된 자료에서 확인되지 않습니다.", "used_sources": []}, "related": []}'
-            ),
+            "답변 본문만 작성하세요. JSON, 신뢰도, 출처, 관련 자료 목록은 쓰지 마세요.",
+            "파일을 언급해야 한다면 위에 제공된 정확한 파일명·경로만 사용하고 경로를 추측하지 마세요.",
         ]
     )
     return "\n".join(lines)
@@ -731,8 +1053,18 @@ def _is_placeholder_chunk(chunk: dict) -> bool:
 
 
 def _looks_unavailable_answer(answer: str) -> bool:
-    normalized = answer.strip()
-    return not normalized or "확인되지" in normalized or "찾지 못" in normalized
+    normalized = _compact_text(answer)
+    if not normalized:
+        return True
+    stripped = normalized.rstrip(".!?。 ")
+    unavailable_messages = (
+        "제공된 자료에서 확인되지 않습니다",
+        "관련된 자료를 찾을 수 없습니다",
+        "질문과 일치하는 자료를 찾지 못했습니다",
+    )
+    return any(
+        stripped == message.rstrip(".!?。 ") for message in unavailable_messages
+    )
 
 
 def _unique_file_names(chunks: list[dict]) -> list[str]:
@@ -887,14 +1219,25 @@ def _find_exact_file_name_keyword_indices(
     chunks: list[dict],
     similarities: np.ndarray,
     limit: int = 12,
+    *,
+    query_terms: list[str] | None = None,
+    file_names_casefold: list[str] | None = None,
 ) -> list[int]:
-    query_terms = _extract_indexed_query_terms(query, chunks)
+    query_terms = (
+        query_terms
+        if query_terms is not None
+        else _extract_indexed_query_terms(query, chunks)
+    )
     if not query_terms:
         return []
 
     matches: list[tuple[int, float, int]] = []
     for index, chunk in enumerate(chunks):
-        file_name = _chunk_file_name(chunk).casefold()
+        file_name = (
+            file_names_casefold[index]
+            if file_names_casefold is not None
+            else _chunk_file_name(chunk).casefold()
+        )
         match_count = sum(1 for term in query_terms if term in file_name)
         if match_count > 0:
             matches.append((match_count, float(similarities[index]), index))
@@ -912,11 +1255,21 @@ def _find_exact_file_name_keyword_indices(
     return [index for _, index in exact_matches[:limit]]
 
 
-def _find_file_name_keyword_indices(query: str, chunks: list[dict]) -> list[int]:
+def _find_file_name_keyword_indices(
+    query: str,
+    chunks: list[dict],
+    *,
+    query_terms: list[str] | None = None,
+    source_tokens: list[set[str]] | None = None,
+) -> list[int]:
     if not query:
         return []
 
-    query_terms = _extract_indexed_query_terms(query, chunks)
+    query_terms = (
+        query_terms
+        if query_terms is not None
+        else _extract_indexed_query_terms(query, chunks)
+    )
     if not query_terms:
         return []
 
@@ -937,8 +1290,12 @@ def _find_file_name_keyword_indices(query: str, chunks: list[dict]) -> list[int]
             or chunk.get("source_file")
             or ""
         )
-        source_tokens = _source_tokens_for_text(f"{file_name} {source_path}")
-        match_count = sum(1 for term in query_terms if term in source_tokens)
+        chunk_source_tokens = (
+            source_tokens[index]
+            if source_tokens is not None
+            else _source_tokens_for_text(f"{file_name} {source_path}")
+        )
+        match_count = sum(1 for term in query_terms if term in chunk_source_tokens)
         if match_count > 0:
             matches.append((match_count, len(file_name), index))
 
@@ -950,8 +1307,19 @@ def _find_file_name_keyword_indices(query: str, chunks: list[dict]) -> list[int]
     return [index for match_count, _, index in matches if match_count == best_count]
 
 
-def _find_exact_text_keyword_indices(query: str, chunks: list[dict]) -> list[int]:
-    terms = _extract_indexed_query_terms(query, chunks)
+def _find_exact_text_keyword_indices(
+    query: str,
+    chunks: list[dict],
+    *,
+    query_terms: list[str] | None = None,
+    source_tokens: list[set[str]] | None = None,
+    chunk_texts_casefold: list[str] | None = None,
+) -> list[int]:
+    terms = (
+        query_terms
+        if query_terms is not None
+        else _extract_indexed_query_terms(query, chunks)
+    )
     if len(terms) < 2:
         return []
     source_matched = _filter_chunks_by_best_source_token_match(chunks, terms)
@@ -963,9 +1331,17 @@ def _find_exact_text_keyword_indices(query: str, chunks: list[dict]) -> list[int
     for index, chunk in enumerate(chunks):
         if id(chunk) not in source_matched_ids:
             continue
-        source_tokens = _source_tokens_for_text(_chunk_source_text(chunk))
-        chunk_text = str(chunk.get("chunk_text") or "").casefold()
-        source_terms = [term for term in terms if term in source_tokens]
+        chunk_source_tokens = (
+            source_tokens[index]
+            if source_tokens is not None
+            else _source_tokens_for_text(_chunk_source_text(chunk))
+        )
+        chunk_text = (
+            chunk_texts_casefold[index]
+            if chunk_texts_casefold is not None
+            else str(chunk.get("chunk_text") or "").casefold()
+        )
+        source_terms = [term for term in terms if term in chunk_source_tokens]
         content_terms = [
             term
             for term in terms
@@ -979,21 +1355,43 @@ def _find_exact_text_keyword_indices(query: str, chunks: list[dict]) -> list[int
     return [index for _, index in matches]
 
 
-def _find_content_keyword_indices(query: str, chunks: list[dict]) -> list[int]:
-    source_terms = _extract_indexed_query_terms(query, chunks)
-    content_terms = _extract_content_boost_terms(query, chunks)
-    if not source_terms or not content_terms:
+def _find_content_keyword_indices(
+    query: str,
+    chunks: list[dict],
+    *,
+    query_terms: list[str] | None = None,
+    source_tokens: list[set[str]] | None = None,
+    chunk_texts_casefold: list[str] | None = None,
+) -> list[int]:
+    matched_source_terms = (
+        query_terms if query_terms is not None else _extract_indexed_query_terms(query, chunks)
+    )
+    source_term_set = set(matched_source_terms)
+    content_terms = [
+        term for term in _extract_keyword_match_terms(query) if term not in source_term_set
+    ]
+    if not matched_source_terms or not content_terms:
         return []
 
-    minimum_source_matches = max(1, len(source_terms) - 1)
+    minimum_source_matches = max(1, len(matched_source_terms) - 1)
     matches: list[tuple[int, int, int]] = []
     for index, chunk in enumerate(chunks):
-        source_tokens = _source_tokens_for_chunk(chunk)
-        source_match_count = sum(1 for term in source_terms if term in source_tokens)
+        chunk_source_tokens = (
+            source_tokens[index]
+            if source_tokens is not None
+            else _source_tokens_for_chunk(chunk)
+        )
+        source_match_count = sum(
+            1 for term in matched_source_terms if term in chunk_source_tokens
+        )
         if source_match_count < minimum_source_matches:
             continue
 
-        chunk_text = str(chunk.get("chunk_text") or "").casefold()
+        chunk_text = (
+            chunk_texts_casefold[index]
+            if chunk_texts_casefold is not None
+            else str(chunk.get("chunk_text") or "").casefold()
+        )
         content_match_count = sum(1 for term in content_terms if term in chunk_text)
         if content_match_count <= 0:
             continue
@@ -1015,8 +1413,15 @@ def _merge_index_lists(*index_lists: list[int]) -> list[int]:
     return merged
 
 
-def _extract_indexed_query_terms(query: str, chunks: list[dict]) -> list[str]:
-    source_index = _build_source_token_index(chunks)
+def _extract_indexed_query_terms(
+    query: str,
+    chunks: list[dict],
+    *,
+    source_index: dict[str, set[str]] | None = None,
+) -> list[str]:
+    source_index = (
+        source_index if source_index is not None else _build_source_token_index(chunks)
+    )
     return [
         term
         for term in _extract_keyword_match_terms(query)
@@ -1396,7 +1801,11 @@ def _format_source(chunk: dict) -> str:
     source_path = str(chunk.get("source_path") or "").strip()
     if not file_name or source_path.startswith("keyword-summary:"):
         return ""
-    return f"{file_name} (\uacbd\ub85c: {source_path})"
+    modified_at = str(chunk.get("modified_at") or "").strip()
+    metadata = [f"경로: {source_path or '확인되지 않음'}"]
+    if modified_at:
+        metadata.append(f"수정일: {modified_at}")
+    return f"{file_name} ({', '.join(metadata)})"
 
 
 def _is_internal_summary_chunk(chunk: dict) -> bool:

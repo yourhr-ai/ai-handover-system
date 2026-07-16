@@ -3,8 +3,8 @@ import re
 from collections.abc import Callable
 from html import escape as html_escape
 
-from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QFont, QTextOption
+from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, QTimer, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QTextOption
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -60,6 +60,10 @@ MEMO_CONTENT_SPACING = 24
 MEMO_LIST_HEIGHT = 150
 MEMO_TITLE_HEIGHT = 42
 MEMO_CONTENT_MIN_HEIGHT = 290
+MEMO_ACTION_BUTTON_HEIGHT = 40
+MEMO_TITLE_LABEL_TOP_MARGIN = 20
+MEMO_BUTTON_BAR_BOTTOM_MARGIN = 20
+MEMO_PROGRESS_BAR_MARGIN = 20
 
 
 def _set_button_role(button: QPushButton, role: str) -> None:
@@ -100,6 +104,68 @@ def _get_parent_folder_relative_path(file_relative_path: str) -> str:
     return file_relative_path.rsplit("/", 1)[0]
 
 
+class MemoWorkflowProgressBar(QWidget):
+    """Static 5-step guide for the memo-writing workflow.
+
+    Intentionally never reflects live completion state: showing a step as
+    "done" tempts users to stop after writing just one memo, even though
+    writing several is more useful to the person taking over. This is a
+    purely informational, always-neutral order-of-operations label.
+    """
+
+    STEP_LABELS = ("메모작성", "자료연결", "메모저장", "알려주세요", "인수인계서저장")
+    STEP_COLOR = QColor("#7C3AED")
+    LABEL_COLOR = QColor("#6B7280")
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("memoWorkflowProgressBar")
+        self.setFixedHeight(62)
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width = max(self.width(), 1)
+        step_count = len(self.STEP_LABELS)
+        side_margin = max(38.0, min(70.0, width * 0.06))
+        available_width = max(1.0, width - (side_margin * 2))
+        centers = [
+            QPointF(side_margin + available_width * index / (step_count - 1), 19.0)
+            for index in range(step_count)
+        ]
+
+        painter.setPen(QPen(self.STEP_COLOR, 2.0, Qt.PenStyle.SolidLine))
+        for index in range(step_count - 1):
+            painter.drawLine(
+                QPointF(centers[index].x() + 14, centers[index].y()),
+                QPointF(centers[index + 1].x() - 14, centers[index + 1].y()),
+            )
+
+        symbol_font = QFont(self.font())
+        symbol_font.setPixelSize(12)
+        symbol_font.setBold(True)
+        label_font = QFont(self.font())
+        label_font.setPixelSize(11)
+
+        for index, center in enumerate(centers):
+            circle = QRectF(center.x() - 12, center.y() - 12, 24, 24)
+            painter.setPen(QPen(self.STEP_COLOR, 2.0))
+            painter.setBrush(QColor("#FFFFFF"))
+            painter.drawEllipse(circle)
+
+            painter.setFont(symbol_font)
+            painter.setPen(self.STEP_COLOR)
+            painter.drawText(circle, Qt.AlignmentFlag.AlignCenter, str(index + 1))
+
+            painter.setFont(label_font)
+            painter.setPen(self.LABEL_COLOR)
+            painter.drawText(
+                QRectF(center.x() - 58, 37, 116, 20),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                self.STEP_LABELS[index],
+            )
+
+
 class MemoDialog(QDialog):
     def __init__(
         self,
@@ -110,7 +176,7 @@ class MemoDialog(QDialog):
         parsed_emails: list[dict] | None = None,
         kakao_file_paths: list[str] | None = None,
         handover_qa: HandoverQA | None = None,
-        on_save_word: Callable[[], bool] | None = None,
+        on_save_word: Callable[[], bool | None] | None = None,
         analysismode: str = "basic",
         parent: QWidget | None = None,
     ) -> None:
@@ -134,6 +200,14 @@ class MemoDialog(QDialog):
         self.is_syncing_tree = False
         self.has_unsaved_changes = False
         self.is_reverting_selection = False
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.setSingleShot(True)
+        self.autosave_timer.setInterval(2000)
+        self.autosave_timer.timeout.connect(self._autosave_current_memo)
+        self.autosave_status_timer = QTimer(self)
+        self.autosave_status_timer.setSingleShot(True)
+        self.autosave_status_timer.setInterval(1500)
+        self.autosave_status_timer.timeout.connect(self._clear_autosave_status)
         # Relative paths of files the user checked directly (not via a parent
         # folder check) for the memo currently loaded in the dialog.
         self.directly_checked_file_paths: set[str] = set()
@@ -147,10 +221,6 @@ class MemoDialog(QDialog):
         self.memo_list.setFixedHeight(MEMO_LIST_HEIGHT)
         self.add_button = QPushButton("메모 추가")
         _set_button_role(self.add_button, "secondary")
-        self.move_up_button = QPushButton("▲ 위로")
-        _set_button_role(self.move_up_button, "secondary")
-        self.move_down_button = QPushButton("▼ 아래로")
-        _set_button_role(self.move_down_button, "secondary")
         self.delete_button = QPushButton("삭제")
         _set_button_role(self.delete_button, "secondary")
         self.save_button = QPushButton("저장")
@@ -159,11 +229,21 @@ class MemoDialog(QDialog):
         _set_button_role(self.handover_qa_button, "secondary")
         self.complete_button = QPushButton("인수인계서 저장")
         _set_button_role(self.complete_button, "primary")
+        for action_button in (
+            self.add_button,
+            self.save_button,
+            self.delete_button,
+            self.handover_qa_button,
+            self.complete_button,
+        ):
+            action_button.setFixedHeight(MEMO_ACTION_BUTTON_HEIGHT)
+        self.workflow_progress = MemoWorkflowProgressBar(self)
         self.completion_label = QLabel("")
         self.completion_label.setStyleSheet(
             "color: #2C4A7C; font-weight: 700;"
         )
         self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: #64748B; font-size: 11px;")
         self.title_input = QLineEdit()
         self.title_input.setObjectName("memoTitleInput")
         self.title_input.setFixedHeight(MEMO_TITLE_HEIGHT)
@@ -291,23 +371,22 @@ class MemoDialog(QDialog):
         button_bar.addWidget(self.handover_qa_button)
         button_bar.addWidget(self.complete_button)
         button_bar.addWidget(self.completion_label)
+        button_bar.addWidget(self.status_label)
         button_bar.addStretch()
 
         left_layout = QVBoxLayout()
-        left_layout.setSpacing(MEMO_SECTION_SPACING)
+        left_layout.setSpacing(0)
         left_layout.addWidget(self._create_emphasis_label("메모 목록"))
+        left_layout.addSpacing(MEMO_SECTION_SPACING)
         left_layout.addWidget(self.memo_list)
-        move_buttons_row = QHBoxLayout()
-        move_buttons_row.setSpacing(MEMO_BUTTON_SPACING)
-        move_buttons_row.addWidget(self.move_up_button)
-        move_buttons_row.addWidget(self.move_down_button)
-        move_buttons_row.addStretch()
-        left_layout.addLayout(move_buttons_row)
+        left_layout.addSpacing(MEMO_TITLE_LABEL_TOP_MARGIN)
         left_layout.addWidget(self._create_emphasis_label("메모 제목"))
+        left_layout.addSpacing(MEMO_SECTION_SPACING)
         left_layout.addWidget(self.title_input)
+        left_layout.addSpacing(MEMO_SECTION_SPACING)
         left_layout.addWidget(self._create_emphasis_label("메모 내용"))
+        left_layout.addSpacing(MEMO_SECTION_SPACING)
         left_layout.addWidget(self.content_input)
-        left_layout.addStretch()
 
         self.related_target_tabs = QTabWidget()
         self.related_target_tabs.setObjectName("memoRelatedTabs")
@@ -358,16 +437,15 @@ class MemoDialog(QDialog):
         content_layout.addLayout(left_layout, 40)
         content_layout.addWidget(self.related_target_tabs, 30)
 
+        main_layout.addSpacing(MEMO_PROGRESS_BAR_MARGIN)
+        main_layout.addWidget(self.workflow_progress)
+        main_layout.addSpacing(MEMO_PROGRESS_BAR_MARGIN)
         main_layout.addLayout(button_bar)
-        main_layout.addSpacing(6)
-        main_layout.addWidget(self.status_label)
-        main_layout.addSpacing(6)
+        main_layout.addSpacing(MEMO_BUTTON_BAR_BOTTOM_MARGIN)
         main_layout.addLayout(content_layout)
 
     def _connect_signals(self) -> None:
         self.add_button.clicked.connect(self._add_memo)
-        self.move_up_button.clicked.connect(lambda: self._move_current_memo(-1))
-        self.move_down_button.clicked.connect(lambda: self._move_current_memo(1))
         self.delete_button.clicked.connect(self._delete_memo)
         self.handover_qa_button.clicked.connect(self._open_handover_qa)
         self.complete_button.clicked.connect(self._save_word_and_close)
@@ -741,8 +819,11 @@ class MemoDialog(QDialog):
         if not self.memos:
             self._add_memo_list_placeholder()
         else:
-            for memo in self.memos:
-                self._add_memo_list_item(memo)
+            last_row = len(self.memos) - 1
+            for row, memo in enumerate(self.memos):
+                self._add_memo_list_item(
+                    memo, row, is_first=row == 0, is_last=row == last_row
+                )
         self.memo_list.blockSignals(False)
 
         if self.memos:
@@ -763,14 +844,42 @@ class MemoDialog(QDialog):
         self.memo_list.addItem(item)
         self.memo_list.setItemWidget(item, label)
 
-    def _add_memo_list_item(self, memo: WorkMemo) -> None:
+    def _refresh_memo_list_item_widget(self, row: int) -> None:
+        item = self.memo_list.item(row)
+        if item is None or not (0 <= row < len(self.memos)):
+            return
+        widget = self._build_memo_list_item_widget(
+            self.memos[row],
+            row,
+            is_first=row == 0,
+            is_last=row == len(self.memos) - 1,
+        )
+        self.memo_list.setItemWidget(item, widget)
+
+    def _add_memo_list_item(
+        self,
+        memo: WorkMemo,
+        row: int,
+        *,
+        is_first: bool,
+        is_last: bool,
+    ) -> None:
         item = QListWidgetItem()
-        widget = self._build_memo_list_item_widget(memo)
+        widget = self._build_memo_list_item_widget(
+            memo, row, is_first=is_first, is_last=is_last
+        )
         item.setSizeHint(QSize(widget.sizeHint().width(), 44))
         self.memo_list.addItem(item)
         self.memo_list.setItemWidget(item, widget)
 
-    def _build_memo_list_item_widget(self, memo: WorkMemo) -> QLabel:
+    def _build_memo_list_item_widget(
+        self,
+        memo: WorkMemo,
+        row: int,
+        *,
+        is_first: bool,
+        is_last: bool,
+    ) -> QWidget:
         title = memo.title or "제목 없음"
         updated_at = getattr(memo, "updatedat", "")
         created_at = getattr(memo, "createdat", "")
@@ -794,24 +903,43 @@ class MemoDialog(QDialog):
         label = QLabel(html)
         label.setObjectName("memoListItemLabel")
         label.setTextFormat(Qt.TextFormat.RichText)
-        return label
+
+        up_button = QPushButton("▲")
+        up_button.setObjectName("memoRowMoveButton")
+        up_button.setFixedSize(22, 22)
+        up_button.setEnabled(not is_first)
+        up_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        up_button.setToolTip("위로 이동")
+        up_button.clicked.connect(lambda: self._move_memo_at_row(row, -1))
+
+        down_button = QPushButton("▼")
+        down_button.setObjectName("memoRowMoveButton")
+        down_button.setFixedSize(22, 22)
+        down_button.setEnabled(not is_last)
+        down_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        down_button.setToolTip("아래로 이동")
+        down_button.clicked.connect(lambda: self._move_memo_at_row(row, 1))
+
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(8, 0, 6, 0)
+        row_layout.setSpacing(4)
+        row_layout.addWidget(label, 1)
+        row_layout.addWidget(up_button)
+        row_layout.addWidget(down_button)
+        return row_widget
 
     def _add_memo(self) -> None:
         if not self._confirm_unsaved_changes():
             return
 
         new_memo = WorkMemo(title="", content="", linked_folders=[])
-        was_empty = not self.memos
         self.memos.append(new_memo)
 
-        # Append just the new row instead of rebuilding the whole list, since
-        # only one memo was added and the rest of the list is unchanged.
-        self.memo_list.blockSignals(True)
-        if was_empty:
-            self.memo_list.clear()
-        self._add_memo_list_item(new_memo)
-        self.memo_list.blockSignals(False)
-
+        # A full rebuild (rather than appending just the new row) is needed
+        # here because the previous last row's ▼ button must switch from
+        # disabled to enabled now that it's no longer the last memo.
+        self._refresh_memo_list()
         self.memo_list.setCurrentRow(len(self.memos) - 1)
         self._update_handover_qa_button_enabled()
         self._update_completion_progress()
@@ -827,18 +955,28 @@ class MemoDialog(QDialog):
         self._update_handover_qa_button_enabled()
         self._update_completion_progress()
 
-    def _move_current_memo(self, offset: int) -> None:
-        row = self.memo_list.currentRow()
-        if row < 0:
+    def _move_memo_at_row(self, row: int, offset: int) -> None:
+        if row < 0 or row >= len(self.memos):
             return
 
         new_row = row + offset
         if new_row < 0 or new_row >= len(self.memos):
             return
 
+        # Track the memo actually being edited (if any) by index, not by
+        # object equality, so the editor stays bound to the right memo even
+        # if the swap involves it and another memo happens to have identical
+        # field values.
+        if self.current_memo_index == row:
+            target_row = new_row
+        elif self.current_memo_index == new_row:
+            target_row = row
+        else:
+            target_row = self.current_memo_index
+
         self.memos[row], self.memos[new_row] = self.memos[new_row], self.memos[row]
         self._refresh_memo_list()
-        self.memo_list.setCurrentRow(new_row)
+        self.memo_list.setCurrentRow(target_row)
 
     def _select_memo(self, row: int) -> None:
         if self.is_reverting_selection:
@@ -854,6 +992,7 @@ class MemoDialog(QDialog):
         self._load_memo(row)
 
     def _load_memo(self, row: int) -> None:
+        self.autosave_timer.stop()
         self.current_memo_index = row
 
         self.is_loading = True
@@ -886,6 +1025,7 @@ class MemoDialog(QDialog):
         self.status_label.clear()
 
     def _save_current_memo(self, show_success_message: bool = True) -> bool:
+        self.autosave_timer.stop()
         if (
             self.is_loading
             or self.current_memo_index < 0
@@ -909,39 +1049,90 @@ class MemoDialog(QDialog):
         memo.linked_kakao_files = self._get_checked_simple_tree_identifiers(
             self.kakao_tree_widget
         )
-        self.memo_list.setItemWidget(
-            self.memo_list.item(self.current_memo_index),
-            self._build_memo_list_item_widget(memo),
-        )
+        self._refresh_memo_list_item_widget(self.current_memo_index)
         self.has_unsaved_changes = False
         print(
             f"[DBG1 save_memo] idx={self.current_memo_index} title={memo.title!r}"
             f" linked_emails={memo.linked_emails}"
             f" linked_kakao_files={memo.linked_kakao_files}"
         )
-        self.status_label.setText("메모가 저장되었습니다")
+        self.status_label.clear()
         if show_success_message:
             QMessageBox.information(self, "업무 메모 저장", "메모가 저장되었습니다.")
         self._update_completion_progress()
         return True
 
+    def _autosave_current_memo(self) -> None:
+        if (
+            self.is_loading
+            or not self.has_unsaved_changes
+            or self.current_memo_index < 0
+            or self.current_memo_index >= len(self.memos)
+        ):
+            return
+
+        memo = self.memos[self.current_memo_index]
+        memo.title = self.title_input.text().strip()
+        memo.content = self.content_input.toPlainText()
+        memo.linked_folders = self._get_checked_relative_paths()
+        memo.linked_files = sorted(self.directly_checked_file_paths)
+        memo.linked_emails = self._get_checked_simple_tree_identifiers(
+            self.email_tree_widget
+        )
+        memo.linked_kakao_files = self._get_checked_simple_tree_identifiers(
+            self.kakao_tree_widget
+        )
+        self._refresh_memo_list_item_widget(self.current_memo_index)
+        self.has_unsaved_changes = False
+        self.status_label.setText("임시 저장됨")
+        self.autosave_status_timer.start()
+        self._update_completion_progress()
+
+    def _clear_autosave_status(self) -> None:
+        if self.status_label.text() == "임시 저장됨":
+            self.status_label.clear()
+
     def _save_word_and_close(self) -> None:
         if not self._save_current_memo(show_success_message=False):
             return
-        if not self._validate_completion():
+        if not self._validate_save_requirements():
             return
-        if not self._validate_handover_qa():
+        if not self._validate_completion():
             return
         if self.on_save_word is not None:
             self._set_all_dialog_buttons_enabled(False)
-            try:
-                success = self.on_save_word()
-            finally:
+            success = self.on_save_word()
+            if success is not None:
                 self._set_all_dialog_buttons_enabled(True)
             if success:
                 self.accept()
         else:
             self.accept()
+
+    def _validate_save_requirements(self) -> bool:
+        missing: list[str] = []
+        if not self.memos:
+            missing.append("업무 메모를 1개 이상 작성해주세요.")
+        if not any(
+            memo.linked_folders
+            or memo.linked_files
+            or memo.linked_emails
+            or memo.linked_kakao_files
+            for memo in self.memos
+        ):
+            missing.append("관련 폴더/이메일/메신저를 1개 이상 연결해주세요.")
+        answers = (self.handover_qa.answers + ["", "", "", "", ""])[:5]
+        if not any(answer.strip() for answer in answers):
+            missing.append("알려주세요에서 1개 이상 답변해 주세요.")
+        if not missing:
+            return True
+        QMessageBox.warning(
+            self,
+            "인수인계서 저장",
+            "인수인계서 저장에 필요한 항목을 확인해주세요.\n\n"
+            + "\n".join(f"• {message}" for message in missing),
+        )
+        return False
 
     def _update_handover_qa_button_enabled(self) -> None:
         self.handover_qa_button.setEnabled(bool(self.memos))
@@ -983,10 +1174,11 @@ class MemoDialog(QDialog):
             self.delete_button,
             self.handover_qa_button,
             self.complete_button,
-            self.move_up_button,
-            self.move_down_button,
         ):
             button.setEnabled(enabled)
+        # Disabling the list itself also disables the per-row ▲/▼ buttons
+        # embedded in it, so reordering can't happen during a busy state.
+        self.memo_list.setEnabled(enabled)
         if enabled:
             self._update_handover_qa_button_enabled()
 
@@ -1031,6 +1223,9 @@ class MemoDialog(QDialog):
             return
         self.has_unsaved_changes = True
         self.status_label.clear()
+        self._update_completion_progress()
+        if 0 <= self.current_memo_index < len(self.memos):
+            self.autosave_timer.start()
 
     def _confirm_unsaved_changes(self) -> bool:
         if not self.has_unsaved_changes:
@@ -1198,8 +1393,36 @@ class MemoDialog(QDialog):
             item = item.parent()
 
     def closeEvent(self, event) -> None:
-        if not self._confirm_unsaved_changes():
+        if not self._confirm_close_with_unsaved_changes():
             event.ignore()
             return
-
+        self._stop_autosave_timers()
         event.accept()
+
+    def reject(self) -> None:
+        if not self._confirm_close_with_unsaved_changes():
+            return
+        self._stop_autosave_timers()
+        super().reject()
+
+    def discard_and_close(self) -> None:
+        """Close after an enclosing reset confirmation without a second prompt."""
+        self.has_unsaved_changes = False
+        self._stop_autosave_timers()
+        super().reject()
+
+    def _confirm_close_with_unsaved_changes(self) -> bool:
+        if not self.has_unsaved_changes:
+            return True
+        reply = QMessageBox.question(
+            self,
+            "업무 메모 작성",
+            "저장하지 않은 내용이 있습니다. 닫으시겠습니까?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _stop_autosave_timers(self) -> None:
+        self.autosave_timer.stop()
+        self.autosave_status_timer.stop()

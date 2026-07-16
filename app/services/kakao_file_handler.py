@@ -1,5 +1,9 @@
 import re
 
+from app.services.parallel_file_runner import run_process_items_with_timeout
+
+KAKAO_FILE_TIMEOUT_SECONDS = 10
+
 _DATE_PATTERN = re.compile(r"(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일")
 _MESSAGE_PATTERN = re.compile(
     r"^\[(?P<sender>.+?)\]\s*\[(?P<ampm>오전|오후)\s*(?P<hour>\d{1,2}):(?P<minute>\d{2})\]"
@@ -7,13 +11,23 @@ _MESSAGE_PATTERN = re.compile(
 )
 
 
-def process_kakao_files(file_paths: list[str]) -> tuple[list[dict], int]:
+def process_kakao_files(
+    file_paths: list[str],
+    *,
+    timeout_seconds: float = KAKAO_FILE_TIMEOUT_SECONDS,
+    max_workers: int | None = None,
+) -> tuple[list[dict], int]:
     parsed_messages: list[dict] = []
     failed_count = 0
 
-    for file_path in file_paths:
-        messages = _parse_kakao_file(file_path)
-        if messages is None:
+    outcomes = run_process_items_with_timeout(
+        file_paths,
+        _parse_kakao_file,
+        timeout_seconds=timeout_seconds,
+        max_workers=max_workers,
+    )
+    for status, messages in outcomes:
+        if status != "ok" or messages is None:
             failed_count += 1
         else:
             parsed_messages.extend(messages)

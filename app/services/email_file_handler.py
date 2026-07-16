@@ -7,35 +7,49 @@ from email.header import decode_header
 from email.message import Message
 from pathlib import Path
 
+from app.services.parallel_file_runner import run_process_items_with_timeout
+
 _EMAIL_EXTENSIONS = {".eml", ".msg"}
+EMAIL_FILE_TIMEOUT_SECONDS = 15
 
 
-def process_email_files(file_paths: list[str]) -> tuple[list[dict], int]:
+def process_email_files(
+    file_paths: list[str],
+    *,
+    timeout_seconds: float = EMAIL_FILE_TIMEOUT_SECONDS,
+    max_workers: int | None = None,
+) -> tuple[list[dict], int]:
     parsed_emails: list[dict] = []
     failed_count = 0
 
-    for file_path in file_paths:
-        extension = Path(file_path).suffix.lower()
-        if extension == ".eml":
-            parsed = _parse_eml_file(file_path)
-            if parsed is None:
-                failed_count += 1
-            else:
-                parsed_emails.append(parsed)
-        elif extension == ".msg":
-            parsed = _parse_msg_file(file_path)
-            if parsed is None:
-                failed_count += 1
-            else:
-                parsed_emails.append(parsed)
-        elif extension == ".zip":
-            zip_emails, zip_failed_count = _process_zip_file(file_path)
-            parsed_emails.extend(zip_emails)
-            failed_count += zip_failed_count
-        else:
+    outcomes = run_process_items_with_timeout(
+        file_paths,
+        _process_email_file,
+        timeout_seconds=timeout_seconds,
+        max_workers=max_workers,
+    )
+    for status, result in outcomes:
+        if status != "ok" or result is None:
             failed_count += 1
+            continue
+        emails, item_failed_count = result
+        parsed_emails.extend(emails)
+        failed_count += item_failed_count
 
     return parsed_emails, failed_count
+
+
+def _process_email_file(file_path: str) -> tuple[list[dict], int]:
+    extension = Path(file_path).suffix.lower()
+    if extension == ".eml":
+        parsed = _parse_eml_file(file_path)
+        return ([parsed], 0) if parsed is not None else ([], 1)
+    if extension == ".msg":
+        parsed = _parse_msg_file(file_path)
+        return ([parsed], 0) if parsed is not None else ([], 1)
+    if extension == ".zip":
+        return _process_zip_file(file_path)
+    return [], 1
 
 
 def _parse_eml_file(file_path: str) -> dict | None:
