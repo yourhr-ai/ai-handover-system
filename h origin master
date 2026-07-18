@@ -1,0 +1,120 @@
+[33mcommit aa3e8b99cad7b823a68138cf819b61f55b21219b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m)[m
+Author: 조두형 <recheckmaster@gmail.com>
+Date:   Sat Jul 18 19:16:51 2026 +0900
+
+    GPT API 키 버튼 제거, 3대 AI 기능 서버 프록시 전환, 메모 저장 버튼 스타일 조정
+
+ .gitignore                                         |    2 [32m+[m
+ app/__pycache__/__init__.cpython-314.pyc           |  Bin [31m144[m -> [32m0[m bytes
+ app/__pycache__/api_config.cpython-314.pyc         |  Bin [31m2545[m -> [32m0[m bytes
+ app/__pycache__/config.cpython-314.pyc             |  Bin [31m227[m -> [32m0[m bytes
+ app/__pycache__/gdrive_config.cpython-314.pyc      |  Bin [31m212[m -> [32m0[m bytes
+ app/__pycache__/license.cpython-314.pyc            |  Bin [31m23560[m -> [32m0[m bytes
+ app/__pycache__/license_credits.cpython-314.pyc    |  Bin [31m16619[m -> [32m0[m bytes
+ app/__pycache__/main.cpython-314.pyc               |  Bin [31m5715[m -> [32m0[m bytes
+ app/__pycache__/main.cpython-314.pyc.2423102492384 |  Bin [31m1141[m -> [32m0[m bytes
+ app/__pycache__/size_units.cpython-314.pyc         |  Bin [31m1383[m -> [32m0[m bytes
+ app/api_config.py                                  |   33 [31m-[m
+ app/services/__pycache__/__init__.cpython-314.pyc  |  Bin [31m153[m -> [32m0[m bytes
+ .../__pycache__/ai_analyzer.cpython-314.pyc        |  Bin [31m32268[m -> [32m0[m bytes
+ .../__pycache__/analysis_result.cpython-314.pyc    |  Bin [31m8114[m -> [32m0[m bytes
+ .../__pycache__/email_file_handler.cpython-314.pyc |  Bin [31m12437[m -> [32m0[m bytes
+ ...mail_file_handler.cpython-314.pyc.2512389346848 |  Bin [31m11733[m -> [32m0[m bytes
+ .../file_content_extractor.cpython-314.pyc         |  Bin [31m7754[m -> [32m0[m bytes
+ .../__pycache__/folder_scanner.cpython-314.pyc     |  Bin [31m18005[m -> [32m0[m bytes
+ .../__pycache__/handover_questions.cpython-314.pyc |  Bin [31m1830[m -> [32m0[m bytes
+ .../__pycache__/kakao_file_handler.cpython-314.pyc |  Bin [31m3915[m -> [32m0[m bytes
+ .../__pycache__/package_loader.cpython-314.pyc     |  Bin [31m26872[m -> [32m0[m bytes
+ .../parallel_file_runner.cpython-314.pyc           |  Bin [31m5857[m -> [32m0[m bytes
+ .../rag_package_builder.cpython-314.pyc            |  Bin [31m119913[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.1222315838464 |  Bin [31m34188[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.1742889626352 |  Bin [31m31322[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.1933593521456 |  Bin [31m48382[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2149442464496 |  Bin [31m28802[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2180334782256 |  Bin [31m45900[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2211195815728 |  Bin [31m50210[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2240938740736 |  Bin [31m34188[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2361941317440 |  Bin [31m23985[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2416760102976 |  Bin [31m23985[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2512390928784 |  Bin [31m41073[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2512551256128 |  Bin [31m24072[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2588543686032 |  Bin [31m31322[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2644431511616 |  Bin [31m33190[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.2657382333392 |  Bin [31m23985[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.3052206459904 |  Bin [31m34188[m -> [32m0[m bytes
+ ...g_package_builder.cpython-314.pyc.3108757563280 |  Bin [31m46377[m -> [32m0[m bytes
+ .../__pycache__/rag_search.cpython-314.pyc         |  Bin [31m106378[m -> [32m0[m bytes
+ .../rag_search.cpython-314.pyc.2615682053296       |  Bin [31m80276[m -> [32m0[m bytes
+ .../__pycache__/report_writer.cpython-314.pyc      |  Bin [31m84963[m -> [32m0[m bytes
+ .../report_writer.cpython-314.pyc.2477719089712    |  Bin [31m51668[m -> [32m0[m bytes
+ .../report_writer.cpython-314.pyc.2890939038256    |  Bin [31m52817[m -> [32m0[m bytes
+ app/services/ai_analyzer.py                        |   30 [32m+[m[31m-[m
+ app/services/ai_proxy_client.py                    |  251 [32m+++[m
+ app/services/rag_package_builder.py                |   45 [32m+[m[31m-[m
+ app/services/rag_search.py                         |   78 [32m+[m[31m-[m
+ app/ui/__pycache__/__init__.cpython-314.pyc        |  Bin [31m147[m -> [32m0[m bytes
+ app/ui/__pycache__/chatbot_dialog.cpython-314.pyc  |  Bin [31m107529[m -> [32m0[m bytes
+ app/ui/__pycache__/feedback_dialog.cpython-314.pyc |  Bin [31m7203[m -> [32m0[m bytes
+ .../__pycache__/handover_qa_dialog.cpython-314.pyc |  Bin [31m14478[m -> [32m0[m bytes
+ app/ui/__pycache__/main_window.cpython-314.pyc     |  Bin [31m249992[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.1742895319472      |  Bin [31m89479[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.1828776190064      |  Bin [31m145159[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2005737218160      |  Bin [31m129482[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2149443946416      |  Bin [31m83981[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2157227739056      |  Bin [31m28492[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2166398715824      |  Bin [31m104005[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2194153544368      |  Bin [31m79270[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2361908181680      |  Bin [31m84006[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2423092690832      |  Bin [31m6780[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2510417478960      |  Bin [31m83966[m -> [32m0[m bytes
+ .../main_window.cpython-314.pyc.2588509912240      |  Bin [31m89479[m -> [32m0[m bytes
+ app/ui/__pycache__/memodialog.cpython-314.pyc      |  Bin [31m91893[m -> [32m0[m bytes
+ .../memodialog.cpython-314.pyc.1339467106224       |  Bin [31m73005[m -> [32m0[m bytes
+ .../memodialog.cpython-314.pyc.2661604067248       |  Bin [31m73005[m -> [32m0[m bytes
+ app/ui/chatbot_dialog.py                           |  142 [32m+[m[31m-[m
+ app/ui/main_window.py                              |  278 [32m+[m[31m--[m
+ config/chat_history_PENDING-011-M1-B528604A.json   |   18 [32m+[m
+ .../196fa6fba8864376e5c8.jsonl                     | 2378 [31m--------------------[m
+ output/analysis_result.json                        |  228 [32m+[m[31m-[m
+ .../__pycache__/batch_chatbot_test.cpython-314.pyc |  Bin [31m27094[m -> [32m0[m bytes
+ ...y_actual_memo_save_requirements.cpython-314.pyc |  Bin [31m9453[m -> [32m0[m bytes
+ ..._chatbot_package_responsiveness.cpython-314.pyc |  Bin [31m7013[m -> [32m0[m bytes
+ scripts/batch_chatbot_test.py                      |   41 [32m+[m[31m-[m
+ style.qss                                          |   19 [32m+[m
+ .../test_analysis_mode_switch.cpython-314.pyc      |  Bin [31m15795[m -> [32m0[m bytes
+ ...test_analysis_quality_validator.cpython-314.pyc |  Bin [31m4521[m -> [32m0[m bytes
+ .../test_batch_chatbot_test.cpython-314.pyc        |  Bin [31m3309[m -> [32m0[m bytes
+ .../test_business_context_engine.cpython-314.pyc   |  Bin [31m4307[m -> [32m0[m bytes
+ ...test_business_context_engine_v2.cpython-314.pyc |  Bin [31m9260[m -> [32m0[m bytes
+ ...test_business_context_engine_v3.cpython-314.pyc |  Bin [31m4735[m -> [32m0[m bytes
+ .../test_category_discovery_engine.cpython-314.pyc |  Bin [31m5145[m -> [32m0[m bytes
+ ...test_chatbot_background_workers.cpython-314.pyc |  Bin [31m5163[m -> [32m0[m bytes
+ .../test_chatbot_history_feedback.cpython-314.pyc  |  Bin [31m14063[m -> [32m0[m bytes
+ .../test_chatbot_ui_improvements.cpython-314.pyc   |  Bin [31m23618[m -> [32m0[m bytes
+ .../test_description_generator.cpython-314.pyc     |  Bin [31m4620[m -> [32m0[m bytes
+ .../test_knowhow_generator.cpython-314.pyc         |  Bin [31m4795[m -> [32m0[m bytes
+ ...test_main_window_credit_workers.cpython-314.pyc |  Bin [31m17648[m -> [32m0[m bytes
+ ...t_main_window_workflow_progress.cpython-314.pyc |  Bin [31m3559[m -> [32m0[m bytes
+ ...memo_dialog_safety_and_progress.cpython-314.pyc |  Bin [31m15080[m -> [32m0[m bytes
+ .../test_package_banners.cpython-314.pyc           |  Bin [31m10872[m -> [32m0[m bytes
+ ...est_package_load_responsiveness.cpython-314.pyc |  Bin [31m9884[m -> [32m0[m bytes
+ .../test_parallel_file_processing.cpython-314.pyc  |  Bin [31m10901[m -> [32m0[m bytes
+ .../test_rag_extension_selection.cpython-314.pyc   |  Bin [31m49962[m -> [32m0[m bytes
+ .../test_rag_package_builder_excel.cpython-314.pyc |  Bin [31m8370[m -> [32m0[m bytes
+ .../test_rag_package_resilience.cpython-314.pyc    |  Bin [31m13508[m -> [32m0[m bytes
+ ..._rag_search_streaming_and_cache.cpython-314.pyc |  Bin [31m14155[m -> [32m0[m bytes
+ .../test_report_assembly_preview.cpython-314.pyc   |  Bin [31m12467[m -> [32m0[m bytes
+ .../test_report_reconstruction.cpython-314.pyc     |  Bin [31m4895[m -> [32m0[m bytes
+ .../test_tool_generator.cpython-314.pyc            |  Bin [31m3446[m -> [32m0[m bytes
+ .../test_work_cluster_engine.cpython-314.pyc       |  Bin [31m6435[m -> [32m0[m bytes
+ .../test_work_status_engine.cpython-314.pyc        |  Bin [31m3746[m -> [32m0[m bytes
+ .../test_work_unit_normalizer.cpython-314.pyc      |  Bin [31m5733[m -> [32m0[m bytes
+ .../test_work_unit_resolver.cpython-314.pyc        |  Bin [31m5549[m -> [32m0[m bytes
+ tests/test_batch_chatbot_test.py                   |    2 [32m+[m[31m-[m
+ tests/test_chatbot_background_workers.py           |   24 [32m+[m[31m-[m
+ tests/test_chatbot_ui_improvements.py              |   32 [32m+[m[31m-[m
+ tests/test_main_window_credit_workers.py           |   46 [32m+[m[31m-[m
+ tests/test_main_window_workflow_progress.py        |   46 [31m-[m
+ tests/test_rag_extension_selection.py              |   20 [32m+[m[31m-[m
+ tests/test_rag_search_streaming_and_cache.py       |   63 [32m+[m[31m-[m
+ 113 files changed, 757 insertions(+), 3019 deletions(-)
