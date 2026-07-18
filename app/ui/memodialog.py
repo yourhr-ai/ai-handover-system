@@ -28,27 +28,6 @@ from app.services.analysis_result import FolderTreeNode, HandoverQA, WorkMemo
 from app.ui.handover_qa_dialog import HandoverQADialog
 
 
-def _calculate_completion_percentage(
-    memos: list[WorkMemo],
-    handover_qa: HandoverQA,
-) -> int:
-    memo_count = len(memos)
-    if memo_count >= 3:
-        memo_score = 100
-    elif memo_count == 2:
-        memo_score = 70
-    elif memo_count == 1:
-        memo_score = 40
-    else:
-        memo_score = 0
-
-    answers = (handover_qa.answers + ["", "", "", "", ""])[:5]
-    answered_count = sum(bool(answer.strip()) for answer in answers)
-    question_score = answered_count / 5 * 100
-    percentage = round(memo_score * 0.6 + question_score * 0.4)
-    return max(0, min(100, percentage))
-
-
 MEMO_DIALOG_WIDTH = 1000
 MEMO_DIALOG_HEIGHT = 720
 MEMO_DIALOG_MIN_WIDTH = 1000
@@ -105,7 +84,10 @@ def _get_parent_folder_relative_path(file_relative_path: str) -> str:
 
 
 class MemoWorkflowProgressBar(QWidget):
-    """Static 5-step guide for the memo-writing workflow.
+    """Static 4-step guide for the memo-writing workflow.
+
+    "알려주세요" no longer has its own step: [인수인계서저장] now opens that
+    popup automatically, so that stage is folded into "인수인계서저장".
 
     Intentionally never reflects live completion state: showing a step as
     "done" tempts users to stop after writing just one memo, even though
@@ -113,7 +95,7 @@ class MemoWorkflowProgressBar(QWidget):
     purely informational, always-neutral order-of-operations label.
     """
 
-    STEP_LABELS = ("메모작성", "자료연결", "메모저장", "알려주세요", "인수인계서저장")
+    STEP_LABELS = ("메모작성", "자료연결", "메모저장", "인수인계서저장")
     STEP_COLOR = QColor("#7C3AED")
     LABEL_COLOR = QColor("#6B7280")
 
@@ -225,23 +207,16 @@ class MemoDialog(QDialog):
         _set_button_role(self.delete_button, "secondary")
         self.save_button = QPushButton("저장")
         _set_button_role(self.save_button, "secondary")
-        self.handover_qa_button = QPushButton("알려주세요")
-        _set_button_role(self.handover_qa_button, "secondary")
         self.complete_button = QPushButton("인수인계서 저장")
         _set_button_role(self.complete_button, "primary")
         for action_button in (
             self.add_button,
             self.save_button,
             self.delete_button,
-            self.handover_qa_button,
             self.complete_button,
         ):
             action_button.setFixedHeight(MEMO_ACTION_BUTTON_HEIGHT)
         self.workflow_progress = MemoWorkflowProgressBar(self)
-        self.completion_label = QLabel("")
-        self.completion_label.setStyleSheet(
-            "color: #2C4A7C; font-weight: 700;"
-        )
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #64748B; font-size: 11px;")
         self.title_input = QLineEdit()
@@ -335,8 +310,6 @@ class MemoDialog(QDialog):
                 WorkMemo(title="", content="", linked_folders=initial_linked_folders)
             )
         self._refresh_memo_list()
-        self._update_handover_qa_button_enabled()
-        self._update_completion_progress()
         if initial_linked_folders:
             self.memo_list.setCurrentRow(len(self.memos) - 1)
 
@@ -368,9 +341,7 @@ class MemoDialog(QDialog):
         button_bar.addWidget(self.add_button)
         button_bar.addWidget(self.save_button)
         button_bar.addWidget(self.delete_button)
-        button_bar.addWidget(self.handover_qa_button)
         button_bar.addWidget(self.complete_button)
-        button_bar.addWidget(self.completion_label)
         button_bar.addWidget(self.status_label)
         button_bar.addStretch()
 
@@ -447,7 +418,6 @@ class MemoDialog(QDialog):
     def _connect_signals(self) -> None:
         self.add_button.clicked.connect(self._add_memo)
         self.delete_button.clicked.connect(self._delete_memo)
-        self.handover_qa_button.clicked.connect(self._open_handover_qa)
         self.complete_button.clicked.connect(self._save_word_and_close)
         self.memo_list.currentRowChanged.connect(self._select_memo)
         self.save_button.clicked.connect(lambda: self._save_current_memo())
@@ -941,8 +911,6 @@ class MemoDialog(QDialog):
         # disabled to enabled now that it's no longer the last memo.
         self._refresh_memo_list()
         self.memo_list.setCurrentRow(len(self.memos) - 1)
-        self._update_handover_qa_button_enabled()
-        self._update_completion_progress()
 
     def _delete_memo(self) -> None:
         row = self.memo_list.currentRow()
@@ -952,8 +920,6 @@ class MemoDialog(QDialog):
         del self.memos[row]
         self.has_unsaved_changes = False
         self._refresh_memo_list()
-        self._update_handover_qa_button_enabled()
-        self._update_completion_progress()
 
     def _move_memo_at_row(self, row: int, offset: int) -> None:
         if row < 0 or row >= len(self.memos):
@@ -1059,7 +1025,6 @@ class MemoDialog(QDialog):
         self.status_label.clear()
         if show_success_message:
             QMessageBox.information(self, "업무 메모 저장", "메모가 저장되었습니다.")
-        self._update_completion_progress()
         return True
 
     def _autosave_current_memo(self) -> None:
@@ -1086,18 +1051,50 @@ class MemoDialog(QDialog):
         self.has_unsaved_changes = False
         self.status_label.setText("임시 저장됨")
         self.autosave_status_timer.start()
-        self._update_completion_progress()
 
     def _clear_autosave_status(self) -> None:
         if self.status_label.text() == "임시 저장됨":
             self.status_label.clear()
 
     def _save_word_and_close(self) -> None:
+        # [알려주세요]와 [인수인계서 저장] 통합: 메모/연결자료 조건만 먼저 확인하고
+        # (아직 한 번도 답변을 안 한 최초 실행도 통과해야 팝업이 뜬다), 통과하면
+        # 알려주세요 팝업을 띄운다. 팝업에서 실제로 [저장하고 인수인계서 만들기]를
+        # 눌러야만(=should_proceed_to_save) 답변 조건까지 포함한 최종 검사를 거쳐
+        # 워드 문서를 생성한다. 팝업을 취소/닫기만 하면 답변은 보존된 채(자동저장)
+        # 워드 생성 없이 메모 화면으로 돌아간다.
         if not self._save_current_memo(show_success_message=False):
             return
-        if not self._validate_save_requirements():
-            return
         if not self._validate_completion():
+            return
+        if not self._validate_linked_requirement():
+            return
+
+        qa_dialog = HandoverQADialog(handover_qa=self.handover_qa, parent=self)
+        qa_dialog.exec()
+        if not qa_dialog.should_proceed_to_save:
+            return
+
+        self._finalize_word_save()
+
+    def _validate_linked_requirement(self) -> bool:
+        if any(
+            memo.linked_folders
+            or memo.linked_files
+            or memo.linked_emails
+            or memo.linked_kakao_files
+            for memo in self.memos
+        ):
+            return True
+        QMessageBox.warning(
+            self,
+            "인수인계서 저장",
+            "관련 폴더/이메일/메신저를 1개 이상 연결해주세요.",
+        )
+        return False
+
+    def _finalize_word_save(self) -> None:
+        if not self._validate_save_requirements():
             return
         if self.on_save_word is not None:
             self._set_all_dialog_buttons_enabled(False)
@@ -1134,53 +1131,17 @@ class MemoDialog(QDialog):
         )
         return False
 
-    def _update_handover_qa_button_enabled(self) -> None:
-        self.handover_qa_button.setEnabled(bool(self.memos))
-
-    def _open_handover_qa(self) -> None:
-        if not self.memos:
-            QMessageBox.warning(
-                self,
-                "알려주세요",
-                "업무 메모를 1개 이상 작성해야 질문을 작성할 수 있습니다.",
-            )
-            return
-        HandoverQADialog(
-            handover_qa=self.handover_qa,
-            parent=self,
-        ).exec()
-        self._update_completion_progress()
-
-    def _update_completion_progress(self) -> None:
-        percentage = _calculate_completion_percentage(self.memos, self.handover_qa)
-        self.completion_label.setText(f"완성도 {percentage}%")
-
-    def _validate_handover_qa(self) -> bool:
-        answers = (self.handover_qa.answers + ["", "", "", "", ""])[:5]
-        if any(answer.strip() for answer in answers):
-            return True
-        QMessageBox.warning(
-            self,
-            "인수인계서 저장",
-            "알려주세요에서 질문에 답변해 주세요.",
-        )
-        self._open_handover_qa()
-        return False
-
     def _set_all_dialog_buttons_enabled(self, enabled: bool) -> None:
         for button in (
             self.add_button,
             self.save_button,
             self.delete_button,
-            self.handover_qa_button,
             self.complete_button,
         ):
             button.setEnabled(enabled)
         # Disabling the list itself also disables the per-row ▲/▼ buttons
         # embedded in it, so reordering can't happen during a busy state.
         self.memo_list.setEnabled(enabled)
-        if enabled:
-            self._update_handover_qa_button_enabled()
 
     def _complete_dialog(self) -> None:
         if self.has_unsaved_changes and not self._save_current_memo(
@@ -1223,7 +1184,6 @@ class MemoDialog(QDialog):
             return
         self.has_unsaved_changes = True
         self.status_label.clear()
-        self._update_completion_progress()
         if 0 <= self.current_memo_index < len(self.memos):
             self.autosave_timer.start()
 

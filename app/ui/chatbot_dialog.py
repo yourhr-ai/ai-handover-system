@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.api_config import load_api_key
+from app.size_units import bytes_to_gb
 from app.license import load_saved_license_code
 from app.license_credits import (
     check_balance,
@@ -400,8 +401,11 @@ class ChatbotDialog(QDialog):
         # no-result text appears. A minimum width allowed this label to expand
         # and push the input left even though the chat scroll was restored.
         self.chat_search_result_label.setFixedWidth(110)
+        self.chat_search_result_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self.chat_search_result_label.setStyleSheet(
-            "color: #64748B; font-size: 11px; padding-left: 3px;"
+            "color: #64748B; font-size: 11px; padding-right: 6px;"
         )
         self.question_requirement_label = QLabel(
             "패키지 폴더 또는 구글드라이브 링크를 입력해야 질문 가능합니다."
@@ -459,9 +463,9 @@ class ChatbotDialog(QDialog):
 
         search_row = QHBoxLayout()
         search_row.addStretch()
+        search_row.addWidget(self.chat_search_result_label)
         search_row.addWidget(self.chat_search_input)
         search_row.addWidget(self.chat_search_button)
-        search_row.addWidget(self.chat_search_result_label)
 
         bottom_row = QHBoxLayout()
         bottom_row.addWidget(self.question_input, stretch=1)
@@ -1416,7 +1420,7 @@ class ChatbotDialog(QDialog):
 
     @staticmethod
     def _format_gigabytes(size_bytes: int) -> str:
-        return f"{max(size_bytes, 0) / (1024 ** 3):.2f}"
+        return f"{bytes_to_gb(size_bytes):.2f}"
 
     def _reset_chat_search(self, *_args) -> None:
         if self._chat_search_index >= 0:

@@ -5,14 +5,13 @@ from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import QCoreApplication, QTimer
 
+import app.license_credits as license_credits
 from app.license_credits import get_embedding_unit_cost
 
 from app.ui.main_window import (
     CreditBalanceWorker,
-    CreditFinalizeWorker,
-    CreditPrecheckWorker,
-    PackageCreditFinalizeWorker,
-    PackageCreditReserveWorker,
+    PackageOrderWorker,
+    PackagePaymentPollWorker,
     ReportAiWorker,
     MainWindow,
 )
@@ -40,13 +39,6 @@ class MainWindowCreditWorkerTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def test_package_precheck_does_not_block_ui_event_loop(self):
-        with patch(
-            "app.ui.main_window.precheck_action",
-            side_effect=lambda *_args: (time.sleep(0.15), {"allowed": True})[1],
-        ):
-            _run_responsiveness_check(CreditPrecheckWorker("license", "package"))
-
     def test_embedding_unit_cost_is_read_fresh_from_server(self):
         with patch(
             "app.license_credits._request_json",
@@ -58,110 +50,63 @@ class MainWindowCreditWorkerTests(unittest.TestCase):
             self.assertEqual(get_embedding_unit_cost(), 0.05)
             self.assertEqual(get_embedding_unit_cost(), 0.08)
 
-    def test_package_finalize_preserves_consume_flush_balance_order(self):
-        calls: list[str] = []
+    def test_package_order_status_uses_server_query_endpoint(self):
+        with patch("app.license_credits._request_json", return_value={"status": "pending"}) as request:
+            result = license_credits.get_package_generation_order("order id")
+        self.assertEqual(result, {"status": "pending"})
+        request.assert_called_once_with(
+            f"{license_credits._PACKAGE_ORDERS_URL}?id=order+id"
+        )
 
-        def slow_consume(*_args, **_kwargs):
-            calls.append("consume")
-            time.sleep(0.15)
-
-        with (
-            patch("app.ui.main_window.consume_credits", side_effect=slow_consume),
-            patch("app.ui.main_window.flush_pending_consumptions", side_effect=lambda: calls.append("flush")),
-            patch("app.ui.main_window.check_balance", side_effect=lambda *_: calls.append("balance") or {}),
-        ):
-            _run_responsiveness_check(
-                CreditFinalizeWorker("license", "package", {"embedding_tokens": 12})
+    def test_package_order_preserves_byte_precision_at_pricing_boundary(self):
+        just_above_5_4_gb = 5_400_000_001 / 1_000_000_000
+        with patch("app.license_credits._request_json", return_value={}) as request:
+            license_credits.create_package_generation_order(
+                "license", just_above_5_4_gb
             )
-        self.assertEqual(calls, ["consume", "flush", "balance"])
+        payload = request.call_args.kwargs["payload"]
+        self.assertGreater(payload["requestedGb"], 5.4)
 
-    def test_package_reserves_full_estimated_cost_without_blocking_ui(self):
+    def test_package_order_creation_does_not_block_ui_event_loop(self):
         calls = []
         with patch(
-            "app.ui.main_window.reserve_credits",
-            side_effect=lambda license_code, action, cost: (
+            "app.ui.main_window.create_package_generation_order",
+            side_effect=lambda license_code, size_gb: (
                 time.sleep(0.15),
-                calls.append((license_code, action, cost)),
-                {"allowed": True, "reservation_id": "reservation-1"},
+                calls.append((license_code, size_gb)),
+                {"allowed": True, "status": "completed"},
             )[2],
         ):
-            _run_responsiveness_check(PackageCreditReserveWorker("license", 1166))
-        self.assertEqual(calls, [("license", "package", 1166)])
+            _run_responsiveness_check(PackageOrderWorker("license", 6.25))
+        self.assertEqual(calls, [("license", 6.25)])
 
-    def test_package_finalize_uses_actual_tokens_and_cancel_releases_reservation(self):
-        calls = []
+    def test_free_package_order_starts_package_immediately(self):
+        window = SimpleNamespace(
+            _package_order_worker=object(),
+            _rag_package_context={},
+            _data_processing_payment_dialog=None,
+            _close_data_processing_payment_dialog=MagicMock(),
+            _start_rag_package_from_context=MagicMock(),
+        )
+        MainWindow._handle_package_order_completed(
+            window, {"allowed": True, "status": "completed"}
+        )
+        window._start_rag_package_from_context.assert_called_once()
+        window._close_data_processing_payment_dialog.assert_called_once()
 
-        def finalize(*args, **kwargs):
-            calls.append((args, kwargs))
-            time.sleep(0.05)
-            return {"balance_after": 10}
-
-        with (
-            patch("app.ui.main_window.finalize_credit_reservation", side_effect=finalize),
-            patch("app.ui.main_window.check_balance", return_value={}),
+    def test_payment_poll_detects_completed_without_blocking_ui(self):
+        with patch(
+            "app.ui.main_window.get_package_generation_order",
+            side_effect=lambda *_: (time.sleep(0.15), {"status": "completed"})[1],
         ):
-            _run_responsiveness_check(
-                PackageCreditFinalizeWorker(
-                    "license", "reservation-1", embedding_tokens=12345
-                )
-            )
-            _run_responsiveness_check(
-                PackageCreditFinalizeWorker(
-                    "license", "reservation-2", cancel=True
-                )
-            )
-        self.assertEqual(calls[0][0], ("license", "reservation-1", "package"))
-        self.assertEqual(calls[0][1]["embedding_tokens"], 12345)
-        self.assertFalse(calls[0][1]["cancel"])
-        self.assertEqual(calls[1][0], ("license", "reservation-2", "package"))
-        self.assertTrue(calls[1][1]["cancel"])
+            _run_responsiveness_check(PackagePaymentPollWorker("order-1", timeout_seconds=1))
 
-    def test_insufficient_full_estimate_does_not_start_package(self):
-        window = SimpleNamespace(
-            _package_reserve_worker=object(),
-            _package_reserve_canceled=False,
-            _rag_package_context={"estimated_cost": 1166},
-            _finish_cost_estimation=MagicMock(),
-        )
-        with patch("app.ui.main_window.QMessageBox.warning") as warning:
-            MainWindow._handle_package_reserve_completed(
-                window,
-                "license",
-                {
-                    "allowed": False,
-                    "required_credits": 1166,
-                    "balance": 40,
-                },
-            )
-        window._finish_cost_estimation.assert_called_once()
-        self.assertIn("1,166크레딧", warning.call_args.args[2])
-        self.assertIn("40크레딧", warning.call_args.args[2])
-
-    def test_successful_reservation_is_kept_until_package_finishes(self):
-        context = {
-            "estimated_cost": 1166,
-            "result": object(),
-            "folder_paths": ["folder"],
-            "api_key": "key",
-            "output_path": "package",
-            "parsed_emails": [],
-            "kakao_file_paths": [],
-            "extension_size_limits": {},
-        }
-        window = SimpleNamespace(
-            _package_reserve_worker=object(),
-            _package_reserve_canceled=False,
-            _rag_package_context=context,
-            _start_rag_package_worker=MagicMock(),
-        )
-        MainWindow._handle_package_reserve_completed(
-            window,
-            "license",
-            {"allowed": True, "reservation_id": "reservation-1"},
-        )
-        self.assertEqual(window._package_reservation_id, "reservation-1")
-        self.assertEqual(window._package_reservation_license_code, "license")
-        window._start_rag_package_worker.assert_called_once()
+    def test_package_source_no_longer_calls_credit_reservation(self):
+        from pathlib import Path
+        source = (Path(__file__).parents[1] / "app/ui/main_window.py").read_text(encoding="utf-8")
+        self.assertNotIn("reserve_credits(", source)
+        self.assertNotIn("finalize_credit_reservation(", source)
+        self.assertIn('precheck_action(self.license_code, "report")', source)
 
     def test_startup_flush_and_balance_do_not_block_ui_event_loop(self):
         calls: list[str] = []

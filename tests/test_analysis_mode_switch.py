@@ -178,6 +178,7 @@ class AnalysisModeSwitchTests(unittest.TestCase):
             _folder_tab_index=0,
             current_analysis_result=result,
             current_analysis_analyzed_at=object(),
+            _analyzed_selection_signature=(("folder",), (), ()),
             result_preview=MagicMock(),
             _last_saved_report_fingerprint="saved",
             _last_saved_word_path="report.docx",
@@ -197,9 +198,14 @@ class AnalysisModeSwitchTests(unittest.TestCase):
         window.kakao_file_list_widget.clear.assert_called_once_with()
         self.assertIsNone(window.current_analysis_result)
         self.assertIsNone(window.current_analysis_analyzed_at)
+        self.assertIsNone(window._analyzed_selection_signature)
         self.assertIsNone(window._last_saved_report_fingerprint)
         self.assertIsNone(window._last_saved_word_path)
-        window.edit_memo_button.setEnabled.assert_called_with(False)
+        # [분석시작] 통합 이후 이 버튼은 선택 상태와 무관하게 항상 눌러야 하므로
+        # (필요하면 알아서 분석부터 실행) 더 이상 여기서 직접 비활성화하지 않고,
+        # 항상 활성화 상태로 되돌리는 _update_start_button_enabled에 위임한다.
+        window._update_start_button_enabled.assert_called_once_with()
+        window.edit_memo_button.setEnabled.assert_not_called()
         # The package button is always enabled now, so a mode-change reset
         # must not touch it.
         window.create_rag_package_button.setEnabled.assert_not_called()

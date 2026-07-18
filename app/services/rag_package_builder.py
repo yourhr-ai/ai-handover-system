@@ -145,11 +145,18 @@ def filter_files_by_selected_extensions(
 def get_rag_package_candidate_files(
     analysis_result: AnalysisResult,
     folder_paths: list[str] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> list[AnalyzedFile]:
-    """Return the exact de-duplicated folder-file set used by cost/build."""
+    """Return the exact de-duplicated folder-file set used by cost/build.
+
+    This hashes the full content of every candidate file for dedup, so it can
+    take a long time on large folders — callers running it off the UI thread
+    should pass ``cancel_check`` to allow interrupting between files.
+    """
     selected_files, _exclusions = _collect_rag_package_candidate_files(
         analysis_result,
         folder_paths or _split_root_folder_paths(analysis_result),
+        cancel_check,
     )
     return [file for file, _absolute_path in selected_files]
 
@@ -851,8 +858,6 @@ def estimate_rag_package_cost(
     extension_size_limits: dict[str, int | None] | None = None,
     embedding_unit_cost_per_1k: float | None = None,
 ) -> dict[str, int | float]:
-    if embedding_unit_cost_per_1k is None or embedding_unit_cost_per_1k <= 0:
-        raise ValueError("서버 임베딩 단가가 필요합니다.")
     _raise_if_cancelled(cancel_check)
     selected_files, _file_exclusions = _collect_rag_package_candidate_files(
         analysis_result,
@@ -943,15 +948,30 @@ def estimate_rag_package_cost(
     # extracted character.  Reserve conservatively so a package cannot start
     # with only the old fixed 40-credit allowance.
     estimated_tokens = max(1, math.ceil(estimated_chars * 1.0)) if estimated_chars else 0
-    estimated_cost_krw = math.ceil(
-        (estimated_tokens / 1000) * embedding_unit_cost_per_1k
+    estimated_cost_krw = (
+        math.ceil((estimated_tokens / 1000) * embedding_unit_cost_per_1k)
+        if embedding_unit_cost_per_1k is not None
+        and embedding_unit_cost_per_1k > 0
+        else 0
     )
+    estimated_size_bytes = sum(file.size_bytes for file, _path in content_files)
+    email_source_paths = {
+        str(record.get("source_file") or "").split("::", 1)[0]
+        for record in (parsed_emails or [])
+        if isinstance(record, dict)
+    }
+    for path in [*email_source_paths, *(kakao_file_paths or [])]:
+        try:
+            estimated_size_bytes += Path(path).stat().st_size
+        except OSError:
+            pass
     return {
         "file_count": len(selected_files),
         "content_file_count": len(content_files),
         "estimated_tokens": estimated_tokens,
         "estimated_cost_krw": estimated_cost_krw,
-        "embedding_unit_cost_per_1k": embedding_unit_cost_per_1k,
+        "embedding_unit_cost_per_1k": embedding_unit_cost_per_1k or 0,
+        "estimated_size_bytes": estimated_size_bytes,
     }
 
 
@@ -2092,10 +2112,15 @@ def _should_exclude_file(file: AnalyzedFile) -> bool:
 
 def _select_latest_unique_files(
     files: list[tuple[AnalyzedFile, Path]],
+    cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[list[tuple[AnalyzedFile, Path]], list[dict]]:
     by_hash: dict[str, list[tuple[AnalyzedFile, Path]]] = {}
     excluded: list[dict] = []
     for item in files:
+        # Full-content SHA-256 per file is the expensive part of this pass
+        # (it reads every byte for dedup) — check for cancellation before
+        # each one so a background worker can be interrupted promptly.
+        _raise_if_cancelled(cancel_check)
         file_hash = _hash_file(item[1])
         if file_hash is None:
             excluded.append(_build_excluded_file_record(item[0], "read_error"))
@@ -2190,7 +2215,9 @@ def _collect_rag_package_candidate_files(
             continue
         embeddable.append((analyzed_file, absolute_path))
 
-    selected_files, duplicate_exclusions = _select_latest_unique_files(embeddable)
+    selected_files, duplicate_exclusions = _select_latest_unique_files(
+        embeddable, cancel_check
+    )
     excluded_files.extend(duplicate_exclusions)
     return selected_files, excluded_files
 

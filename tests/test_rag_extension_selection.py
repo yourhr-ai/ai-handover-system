@@ -63,7 +63,7 @@ class RagExtensionSelectionTests(unittest.TestCase):
         self.assertEqual(weights[(".hwp", ".hwpx")], 8)
         self.assertEqual(weights[(".xlsx", ".xls")], 12)
 
-    def test_dialog_shows_badges_and_dynamic_long_processing_notice(self):
+    def test_dialog_shows_badges_and_merged_long_processing_notice(self):
         from PySide6.QtWidgets import QApplication, QLabel
         from app.ui.main_window import FileContentExtensionDialog
 
@@ -81,7 +81,8 @@ class RagExtensionSelectionTests(unittest.TestCase):
             AnalyzedFile(f"text-{index}.txt", "", "", 0, 0)
             for index in range(10)
         ]
-        dialog = FileContentExtensionDialog(files)
+        with patch("app.ui.main_window.load_saved_license_code", return_value=None):
+            dialog = FileContentExtensionDialog(files)
 
         self.assertEqual(
             dialog.findChild(QLabel, "processingTimeBadge_xlsx").text(),
@@ -91,11 +92,14 @@ class RagExtensionSelectionTests(unittest.TestCase):
             dialog.findChild(QLabel, "processingTimeBadge_hwp").text(),
             "예상 시간: 다소 높음",
         )
-        notice = dialog.findChild(QLabel, "longProcessingNotice")
-        self.assertEqual(
-            notice.text(),
-            "문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등) 및 선택한 용량 이상의 파일은\n"
-            "파일명/경로/수정일만 포함합니다.",
+        # The notice is now the second line of the same estimated-time label
+        # (single container, same style) instead of a separate widget.
+        self.assertIsNone(dialog.findChild(QLabel, "longProcessingNotice"))
+        summary_label = dialog.findChild(QLabel, "estimatedProcessingTimeLabel")
+        self.assertIn(
+            "※ [문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등), 선택 용량 초과 파일]은 "
+            "파일명/경로/수정일만 포함.",
+            summary_label.text(),
         )
         self.assertTrue(
             all(combo.currentText() == "1메가" for combo, _ in dialog._extension_limit_combos)
@@ -112,7 +116,7 @@ class RagExtensionSelectionTests(unittest.TestCase):
         dialog.close()
         app.processEvents()
 
-    def test_dialog_hides_long_processing_notice_when_all_levels_are_low(self):
+    def test_dialog_shows_long_processing_notice_when_all_levels_are_low(self):
         from PySide6.QtWidgets import QApplication, QLabel
         from app.ui.main_window import FileContentExtensionDialog
 
@@ -124,12 +128,14 @@ class RagExtensionSelectionTests(unittest.TestCase):
             AnalyzedFile(f"sample{extension}", "", "", 0, 0)
             for extension in RAG_TEXT_EXTRACTION_EXTENSIONS
         ]
-        dialog = FileContentExtensionDialog(files)
+        with patch("app.ui.main_window.load_saved_license_code", return_value=None):
+            dialog = FileContentExtensionDialog(files)
 
-        self.assertEqual(
-            dialog.findChild(QLabel, "longProcessingNotice").text(),
-            "문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등) 및 선택한 용량 이상의 파일은\n"
-            "파일명/경로/수정일만 포함합니다.",
+        self.assertIsNone(dialog.findChild(QLabel, "longProcessingNotice"))
+        self.assertIn(
+            "※ [문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등), 선택 용량 초과 파일]은 "
+            "파일명/경로/수정일만 포함.",
+            dialog.findChild(QLabel, "estimatedProcessingTimeLabel").text(),
         )
         dialog.close()
         app.processEvents()
@@ -150,7 +156,8 @@ class RagExtensionSelectionTests(unittest.TestCase):
             AnalyzedFile("huge.hwp", "", "", 0, 35 * mebibyte),
             AnalyzedFile("ignored.pdf", "", "", 0, 1),
         ]
-        dialog = FileContentExtensionDialog(files)
+        with patch("app.ui.main_window.load_saved_license_code", return_value=None):
+            dialog = FileContentExtensionDialog(files)
         estimate_label = dialog.findChild(QLabel, "estimatedProcessingTimeLabel")
         benefit_label = dialog.findChild(QLabel, "packageBenefitLabel")
         combos = dialog.findChildren(QComboBox)
@@ -165,7 +172,8 @@ class RagExtensionSelectionTests(unittest.TestCase):
         self.assertIn("1개 파일", estimate_label.text())
         self.assertRegex(
             estimate_label.text(),
-            r"^1개 파일 → 패키지 생성 - 약 .+ 소요$",
+            r"^1개 파일\(처리 용량 : \d+\.\dGB\) → 패키지 생성\(약 .+ 소요\) \| [^\n]+\n"
+            r"※ \[문서 외 파일.+파일명/경로/수정일만 포함\.$",
         )
         self.assertEqual(
             benefit_label.text(),
@@ -174,8 +182,13 @@ class RagExtensionSelectionTests(unittest.TestCase):
         self.assertIn("#7C3AED", benefit_label.styleSheet())
         self.assertRegex(
             estimate_label.text(),
-            r"약 (10분|15~20분|30분|1시간|\d+시간) 소요$",
+            r"약 (10분|15~20분|30분|1시간|\d+시간) 소요\) \| [^\n]+\n"
+            r"※ \[문서 외 파일.+파일명/경로/수정일만 포함\.$",
         )
+        # No saved license -> the quota lookup can't run, so the dialog must
+        # fail closed: show the failure state and keep [확인] disabled.
+        self.assertIn("자료 처리 확인 실패", estimate_label.text())
+        self.assertFalse(dialog.confirm_button.isEnabled())
 
         combo_by_extension = {
             extensions[0]: combo
@@ -206,7 +219,8 @@ class RagExtensionSelectionTests(unittest.TestCase):
             AnalyzedFile(f"sample{extension}", "", "", 0, 1)
             for extension in (".docx", ".pptx", ".hwp", ".xlsx", ".txt")
         ]
-        dialog = FileContentExtensionDialog(files)
+        with patch("app.ui.main_window.load_saved_license_code", return_value=None):
+            dialog = FileContentExtensionDialog(files)
         dialog.show()
         app.processEvents()
 
@@ -224,7 +238,11 @@ class RagExtensionSelectionTests(unittest.TestCase):
         self.assertEqual(len(set(combo_right_edges)), 1)
         benefit = dialog.findChild(QLabel, "packageBenefitLabel")
         buttons = dialog.findChild(QDialogButtonBox)
-        self.assertEqual(buttons.geometry().top() - benefit.geometry().bottom() - 1, 35)
+        # 13px explicit spacer + the layout's own 12px inter-item spacing, per
+        # the "exact 25px visual gap below the purple benefit text" comment in
+        # FileContentExtensionDialog.__init__ (pre-existing off-by-10 here,
+        # unrelated to the extension-notice merge in this change).
+        self.assertEqual(buttons.geometry().top() - benefit.geometry().bottom() - 1, 25)
 
         dialog.close()
         app.processEvents()
@@ -509,6 +527,164 @@ class RagExtensionSelectionTests(unittest.TestCase):
 
         self.assertGreater(estimate["estimated_tokens"], 0)
 
+    @staticmethod
+    def _wait_for_quota_state(dialog, states, timeout_seconds=2.0):
+        import time
+
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        deadline = time.perf_counter() + timeout_seconds
+        while dialog._quota_state not in states and time.perf_counter() < deadline:
+            app.processEvents()
+            time.sleep(0.005)
+        return dialog._quota_state
+
+    def test_quota_checking_state_disables_confirm_until_resolved(self):
+        from PySide6.QtWidgets import QApplication
+        from app.ui.main_window import FileContentExtensionDialog
+
+        application = QApplication.instance()
+        if application is not None and not isinstance(application, QApplication):
+            self.skipTest("A QCoreApplication from another test already owns the process")
+        app = application or QApplication([])
+        files = [AnalyzedFile("a.txt", "", "", 0, 1000)]
+
+        def slow_check(_license_code, _size_gb):
+            import time
+
+            time.sleep(0.3)
+            return {"configuredFreeQuotaGb": 5.0}
+
+        with (
+            patch("app.ui.main_window.load_saved_license_code", return_value="license"),
+            patch(
+                "app.ui.main_window.create_package_generation_order",
+                side_effect=slow_check,
+            ),
+        ):
+            dialog = FileContentExtensionDialog(files)
+            self.assertEqual(dialog._quota_state, "checking")
+            self.assertIn("자료 처리 확인 중...", dialog.estimated_time_label.text())
+            self.assertFalse(dialog.confirm_button.isEnabled())
+            self._wait_for_quota_state(dialog, {"ready", "failed"})
+        dialog.close()
+        app.processEvents()
+
+    def test_quota_sufficient_enables_confirm_and_shows_remaining(self):
+        from PySide6.QtWidgets import QApplication
+        from app.ui.main_window import FileContentExtensionDialog
+
+        application = QApplication.instance()
+        if application is not None and not isinstance(application, QApplication):
+            self.skipTest("A QCoreApplication from another test already owns the process")
+        app = application or QApplication([])
+        mebibyte = 1024 * 1024
+        files = [AnalyzedFile("small.txt", "", "", 0, mebibyte // 2)]
+
+        with (
+            patch("app.ui.main_window.load_saved_license_code", return_value="license"),
+            patch(
+                "app.ui.main_window.create_package_generation_order",
+                return_value={"configuredFreeQuotaGb": 5.0},
+            ),
+        ):
+            dialog = FileContentExtensionDialog(files)
+            self.assertEqual(self._wait_for_quota_state(dialog, {"ready", "failed"}), "ready")
+        self.assertIn("자료 처리 5.00GB 가능", dialog.estimated_time_label.text())
+        self.assertTrue(dialog.confirm_button.isEnabled())
+        self.assertIn("#0F172A", dialog.estimated_time_label.styleSheet())
+        dialog.close()
+        app.processEvents()
+
+    def test_quota_insufficient_disables_confirm_and_shows_warning_style(self):
+        from PySide6.QtWidgets import QApplication
+        from app.ui.main_window import FileContentExtensionDialog
+
+        application = QApplication.instance()
+        if application is not None and not isinstance(application, QApplication):
+            self.skipTest("A QCoreApplication from another test already owns the process")
+        app = application or QApplication([])
+        mebibyte = 1024 * 1024
+        # ~1.5GB of content, well above the mocked 1.0GB remaining quota.
+        files = [
+            AnalyzedFile(f"big{index}.txt", "", "", 0, 500 * mebibyte)
+            for index in range(3)
+        ]
+
+        with (
+            patch("app.ui.main_window.load_saved_license_code", return_value="license"),
+            patch(
+                "app.ui.main_window.create_package_generation_order",
+                return_value={"configuredFreeQuotaGb": 1.0},
+            ),
+        ):
+            dialog = FileContentExtensionDialog(files)
+            self.assertEqual(self._wait_for_quota_state(dialog, {"ready", "failed"}), "ready")
+            # The default per-extension size limit ("1메가") caps each file's
+            # contribution, so content stays tiny until the cap is lifted.
+            self.assertIn("자료 처리 1.00GB 가능", dialog.estimated_time_label.text())
+            combo, _extensions = dialog._extension_limit_combos[0]
+            combo.setCurrentText("제한없음")
+            app.processEvents()
+        self.assertIn("처리 용량 결재 필요", dialog.estimated_time_label.text())
+        self.assertFalse(dialog.confirm_button.isEnabled())
+        self.assertIn("#E57373", dialog.estimated_time_label.styleSheet())
+        self.assertIn("font-weight: 700", dialog.estimated_time_label.styleSheet())
+
+        # Shrinking the selected content back under the remaining quota must
+        # flip the state back to sufficient in real time, using the already
+        # cached remaining_gb (no new network call needed).
+        combo.setCurrentText("안함")
+        app.processEvents()
+        self.assertIn("자료 처리 1.00GB 가능", dialog.estimated_time_label.text())
+        self.assertTrue(dialog.confirm_button.isEnabled())
+
+        dialog.close()
+        app.processEvents()
+
+    def test_quota_check_failure_keeps_confirm_disabled_and_retries_on_change(self):
+        from PySide6.QtWidgets import QApplication
+        from app.ui.main_window import FileContentExtensionDialog
+
+        application = QApplication.instance()
+        if application is not None and not isinstance(application, QApplication):
+            self.skipTest("A QCoreApplication from another test already owns the process")
+        app = application or QApplication([])
+        files = [AnalyzedFile("a.txt", "", "", 0, 1000)]
+
+        call_count = {"n": 0}
+
+        def failing_check(_license_code, _size_gb):
+            call_count["n"] += 1
+            return None
+
+        with (
+            patch("app.ui.main_window.load_saved_license_code", return_value="license"),
+            patch(
+                "app.ui.main_window.create_package_generation_order",
+                side_effect=failing_check,
+            ),
+        ):
+            dialog = FileContentExtensionDialog(files)
+            self.assertEqual(self._wait_for_quota_state(dialog, {"ready", "failed"}), "failed")
+            self.assertIn("자료 처리 확인 실패", dialog.estimated_time_label.text())
+            self.assertFalse(dialog.confirm_button.isEnabled())
+            first_call_count = call_count["n"]
+            self.assertGreaterEqual(first_call_count, 1)
+
+            # Touching a combo while in the failed state should retry the
+            # lookup rather than leaving the user stuck forever.
+            combo, _extensions = dialog._extension_limit_combos[0]
+            combo.setCurrentText("안함")
+            app.processEvents()
+            self._wait_for_quota_state(dialog, {"ready"}, timeout_seconds=1.0)
+            self.assertGreater(call_count["n"], first_call_count)
+            self.assertFalse(dialog.confirm_button.isEnabled())
+
+        dialog.close()
+        app.processEvents()
+
     def test_ui_selection_precedes_progress_and_passes_selection_through_workers(self):
         source = (Path(__file__).parents[1] / "app/ui/main_window.py").read_text(
             encoding="utf-8"
@@ -522,10 +698,16 @@ class RagExtensionSelectionTests(unittest.TestCase):
         self.assertIn("extension_size_limits=self.extension_size_limits", source)
         self.assertIn('context["extension_size_limits"]', source)
         self.assertIn("get_rag_package_candidate_files", source)
+        # The "문서 외 파일" notice is now merged into the same estimated-time
+        # label as its second line (same style, single container) instead of
+        # a separate widget. (Checked as one source-line fragment since the
+        # actual Python string literal spans two adjacent lines in source.)
         self.assertIn(
-            "문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등) 및 선택한 용량 이상의 파일은",
+            "※ [문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등), 선택 용량 초과 파일]은 ",
             source,
         )
+        self.assertIn("파일명/경로/수정일만 포함.", source)
+        self.assertNotIn("longProcessingNotice", source)
 
 
 if __name__ == "__main__":

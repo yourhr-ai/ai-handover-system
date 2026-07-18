@@ -26,7 +26,7 @@ class WorkflowProgressBarTest(unittest.TestCase):
         progress = WorkflowProgressBar()
         self.assertEqual(
             progress.STEP_LABELS,
-            ("분석시작", "메모작성", "패키지생성", "물어보기"),
+            ("메모작성", "패키지생성", "물어보기"),
         )
         self.assertFalse(hasattr(progress, "set_states"))
         self.assertFalse(hasattr(progress, "_completed"))

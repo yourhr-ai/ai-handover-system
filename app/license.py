@@ -3,6 +3,7 @@ import calendar
 import hashlib
 import json
 import logging
+import os
 import subprocess
 import urllib.error
 import urllib.request
@@ -23,7 +24,9 @@ TRUSTED_TIME_CHECK_TIMEOUT_SECONDS = 3
 KST = timezone(timedelta(hours=9))
 
 # TODO: 실제 운영 중인 hr-ai-review 서버 주소가 정해지면 아래 값을 교체할 것.
-LICENSE_SERVER_BASE_URL = "https://review.yourhr.co.kr"
+LICENSE_SERVER_BASE_URL = os.environ.get(
+    "HANDOVER_LICENSE_SERVER_BASE_URL", "https://review.yourhr.co.kr"
+).rstrip("/")
 LICENSE_ACTIVATE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/activate"
 LICENSE_SERVER_TIMEOUT_SECONDS = 10
 

@@ -18,6 +18,9 @@ _RESERVE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/token/reserve"
 _FINALIZE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/token/finalize"
 _TOKEN_UNIT_COST_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/token-unit-cost"
 _PACKAGE_BANNERS_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/package-banners"
+_PACKAGE_ORDERS_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/package-generation-orders"
+_DATA_PROCESSING_CHECK_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/data-processing/check"
+_DATA_PROCESSING_CONSUME_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/data-processing/consume"
 _CHAT_FEEDBACK_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/chat-feedback"
 _PENDING_PATH = Path("config") / "pending_credit_consumptions.json"
 _QUEUE_LOCK = threading.Lock()
@@ -75,6 +78,40 @@ def get_embedding_unit_cost() -> float | None:
 def fetch_package_banners() -> dict | None:
     """Return optional package-progress banners without blocking package creation."""
     return _request_json(_PACKAGE_BANNERS_URL)
+
+
+def create_package_generation_order(license_code: str, size_gb: float) -> dict | None:
+    if not license_code or size_gb < 0:
+        return None
+    return _request_json(
+        _DATA_PROCESSING_CHECK_URL,
+        payload={
+            "licenseCode": license_code.strip(),
+            # Preserve byte-level precision around administrator-defined tier
+            # boundaries. Six decimals of decimal GB can collapse several hundred
+            # bytes on either side of a boundary into the same value.
+            "requestedGb": round(float(size_gb), 12),
+        },
+    )
+
+
+def consume_data_processing(license_code: str, actual_gb: float) -> dict | None:
+    if not license_code or actual_gb <= 0:
+        return None
+    return _request_json(
+        _DATA_PROCESSING_CONSUME_URL,
+        payload={
+            "licenseCode": license_code.strip(),
+            "actualGb": round(float(actual_gb), 12),
+        },
+    )
+
+
+def get_package_generation_order(order_id: str) -> dict | None:
+    if not order_id:
+        return None
+    query = urllib.parse.urlencode({"id": order_id.strip()})
+    return _request_json(f"{_PACKAGE_ORDERS_URL}?{query}")
 
 
 def submit_chat_feedback(

@@ -1,1 +1,4 @@
 config/pending_credit_consumptions.json
+.tmp_chatbot_small_package/
+.tmp_chatbot_large_package/
+*.zip

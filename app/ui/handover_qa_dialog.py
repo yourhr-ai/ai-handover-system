@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QFont, QTextBlockFormat, QTextCursor, QTextOption
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -28,11 +28,21 @@ class HandoverQADialog(QDialog):
         super().__init__(parent)
         self.handover_qa = handover_qa
         self.current_index = 0
+        # [인수인계서 저장] 버튼에 통합된 뒤로는 이 팝업을 여는 경로가 하나뿐이라,
+        # "저장하고 인수인계서 만들기"를 눌렀을 때만 True가 되어 호출자가 실제
+        # 워드 문서 생성으로 이어갈지 판단하는 신호로 쓴다. 닫기/X/취소는 답변만
+        # 보존하고(자동저장) False로 남겨 워드 생성으로 이어지지 않는다.
+        self.should_proceed_to_save = False
 
         self.setWindowTitle("알려주세요")
         self.setModal(True)
         self.resize(720, 480)
         self.setMinimumSize(620, 420)
+
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.setSingleShot(True)
+        self.autosave_timer.setInterval(2000)
+        self.autosave_timer.timeout.connect(self._save_current_answer)
 
         self.category_group = QButtonGroup(self)
         self.category_buttons: list[QRadioButton] = []
@@ -47,7 +57,7 @@ class HandoverQADialog(QDialog):
             self.category_labels.append(category_label)
             category_row.addWidget(button)
         category_row.addStretch()
-        self.save_button = QPushButton("저장")
+        self.save_button = QPushButton("저장하고 인수인계서 만들기")
         category_row.addWidget(self.save_button)
         self.close_button = QPushButton("닫기")
         category_row.addWidget(self.close_button)
@@ -82,7 +92,8 @@ class HandoverQADialog(QDialog):
             self._update_category_completion_indicators
         )
         self.answer_input.textChanged.connect(self._apply_answer_line_spacing)
-        self.save_button.clicked.connect(self._save_with_confirmation)
+        self.answer_input.textChanged.connect(self._restart_autosave_timer)
+        self.save_button.clicked.connect(self._save_and_proceed)
         self.close_button.clicked.connect(self._save_and_close)
         self.category_buttons[0].setChecked(True)
         self._load_question()
@@ -98,6 +109,7 @@ class HandoverQADialog(QDialog):
             del self.handover_qa.answers[answer_count:]
 
     def _save_current_answer(self) -> None:
+        self.autosave_timer.stop()
         self._ensure_answer_slots()
         answer = self.answer_input.toPlainText()
         if self.handover_qa.answers[self.current_index] != answer:
@@ -105,9 +117,13 @@ class HandoverQADialog(QDialog):
             self.handover_qa.updatedat = datetime.now().isoformat(timespec="seconds")
         self._update_category_completion_indicators()
 
-    def _save_with_confirmation(self) -> None:
+    def _restart_autosave_timer(self) -> None:
+        self.autosave_timer.start()
+
+    def _save_and_proceed(self) -> None:
         self._save_current_answer()
-        QMessageBox.information(self, "알려주세요", "저장되었습니다")
+        self.should_proceed_to_save = True
+        self.accept()
 
     def _apply_answer_line_spacing(self) -> None:
         if self._applying_line_spacing:
