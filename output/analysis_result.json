@@ -1,66 +1,228 @@
 {
-  "analyzed_at": "2026-07-16T13:40:01",
-  "analysismode": "basic",
-  "root_folder_path": "C:/dev/handover-analyzer-mvp1/.tmp_chatbot_small_package",
+  "analyzed_at": "2026-07-18T17:54:55",
+  "analysismode": "ai",
+  "root_folder_path": "C:/Users/조두형/Desktop/크몽",
   "root_summary": {
-    "total_folder_count": 0,
-    "total_file_count": 1,
-    "total_size_bytes": 53940719,
-    "modified_within_7_days_count": 1,
-    "modified_within_30_days_count": 1,
-    "modified_within_90_days_count": 1
+    "total_folder_count": 500,
+    "total_file_count": 2933,
+    "total_size_bytes": 1917893856,
+    "modified_within_7_days_count": 5,
+    "modified_within_30_days_count": 102,
+    "modified_within_90_days_count": 203
   },
   "error_count": 0,
   "handover_qa": {
     "answers": [
       "",
       "",
-      "",
+      "XP자문 결과 정리 및 후속 미팅 일정 조율",
       "",
       ""
     ],
-    "updatedat": "2026-07-16T13:40:01"
+    "updatedat": "2026-07-18T18:52:37"
   },
-  "memos": [],
-  "sharedfolders": {},
-  "unlinkedfolders": [
+  "memos": [
     {
-      "folder_name": ".tmp_chatbot_small_package",
-      "relative_path": ".tmp_chatbot_small_package",
-      "file_count": 1,
-      "modified_within_30_days_count": 1,
-      "modified_within_90_days_count": 1
+      "title": "크몽 고객사 인사 자문 업무",
+      "content": "크몽에서 진행한 여러 고객사 인사 자문 업무 자료입니다.",
+      "createdat": "2026-07-18T18:42:49",
+      "updatedat": "2026-07-18T18:51:44",
+      "linked_folders": [
+        "크몽"
+      ],
+      "linked_files": [],
+      "linked_emails": [],
+      "linked_kakao_files": [],
+      "linked_folder_stats": [
+        {
+          "relative_path": "크몽",
+          "source_1depth_relative_path": "크몽",
+          "file_count": 2933,
+          "total_size_bytes": 1917893856,
+          "extension_counts": {
+            ".xlsx": 952,
+            ".pdf": 864,
+            ".docx": 306,
+            ".pptx": 230,
+            ".hwp": 210,
+            ".jpg": 103,
+            ".xls": 77,
+            ".doc": 62,
+            ".zip": 43,
+            ".png": 35
+          },
+          "modified_within_7_days_count": 5,
+          "modified_within_30_days_count": 102,
+          "modified_within_90_days_count": 203
+        }
+      ],
+      "priorityfilesbytopfolder": {
+        "크몽": [
+          {
+            "file_name": "2.1 영업직 인센티브 운영안.hwp",
+            "relative_path": "크몽/2026년 6월 네오비타/결과물/2.1 영업직 인센티브 운영안.hwp",
+            "modified_at": "2026-07-16 10:06:35"
+          },
+          {
+            "file_name": "2. 업무량 진단 및 적정 거래처 기준 수립 보고서_1.xlsx",
+            "relative_path": "크몽/2026년 6월 채움세무법인/결과물/2. 업무량 진단 및 적정 거래처 기준 수립 보고서_1.xlsx",
+            "modified_at": "2026-07-15 20:26:54"
+          },
+          {
+            "file_name": "11. 조직문화 및 동기부여.docx",
+            "relative_path": "크몽/2026년 6월 채움세무법인/결과물/11. 조직문화 및 동기부여.docx",
+            "modified_at": "2026-07-15 12:34:20"
+          },
+          {
+            "file_name": "1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715_1.hwp",
+            "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715_1.hwp",
+            "modified_at": "2026-07-15 11:00:38"
+          },
+          {
+            "file_name": "평가시스템 직원 비번.xlsx",
+            "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/평가시스템 직원 비번.xlsx",
+            "modified_at": "2026-07-10 08:39:12"
+          }
+        ]
+      }
     }
   ],
+  "sharedfolders": {},
+  "unlinkedfolders": [],
   "child_folders": [
     {
-      "folder_name": ".tmp_chatbot_small_package",
-      "relative_path": ".tmp_chatbot_small_package",
+      "folder_name": "크몽",
+      "relative_path": "크몽",
       "summary": {
-        "total_folder_count": 0,
-        "total_file_count": 1,
-        "total_size_bytes": 53940719,
-        "modified_within_30_days_count": 1
+        "total_folder_count": 500,
+        "total_file_count": 2933,
+        "total_size_bytes": 1917893856,
+        "modified_within_30_days_count": 102
       },
       "recent_modified_files": [
         {
-          "file_name": "small.zip",
-          "relative_path": ".tmp_chatbot_small_package/small.zip",
-          "modified_at": "2026-07-13 21:54:20"
+          "file_name": "2.1 영업직 인센티브 운영안.hwp",
+          "relative_path": "크몽/2026년 6월 네오비타/결과물/2.1 영업직 인센티브 운영안.hwp",
+          "modified_at": "2026-07-16 10:06:35"
+        },
+        {
+          "file_name": "2. 업무량 진단 및 적정 거래처 기준 수립 보고서_1.xlsx",
+          "relative_path": "크몽/2026년 6월 채움세무법인/결과물/2. 업무량 진단 및 적정 거래처 기준 수립 보고서_1.xlsx",
+          "modified_at": "2026-07-15 20:26:54"
+        },
+        {
+          "file_name": "11. 조직문화 및 동기부여.docx",
+          "relative_path": "크몽/2026년 6월 채움세무법인/결과물/11. 조직문화 및 동기부여.docx",
+          "modified_at": "2026-07-15 12:34:20"
+        },
+        {
+          "file_name": "1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715_1.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715_1.hwp",
+          "modified_at": "2026-07-15 11:00:38"
+        },
+        {
+          "file_name": "1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715.hwp",
+          "modified_at": "2026-07-15 10:39:27"
+        },
+        {
+          "file_name": "평가시스템 직원 비번.xlsx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/평가시스템 직원 비번.xlsx",
+          "modified_at": "2026-07-10 08:39:12"
+        },
+        {
+          "file_name": "동우국제 평가제도 2차 설명회.pptx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/동우국제 평가제도 2차 설명회.pptx",
+          "modified_at": "2026-07-09 11:23:49"
+        },
+        {
+          "file_name": "2026년 상반기 성과평가 시행 안내_20260709.docx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/2026년 상반기 성과평가 시행 안내_20260709.docx",
+          "modified_at": "2026-07-08 17:41:56"
+        },
+        {
+          "file_name": "2026년 상반기 성과평가 시행 안내_20260627.docx",
+          "relative_path": "크몽/2026년 2월 동우국제/결과물/평가/2026년 상반기 성과평가 시행 안내_20260627.docx",
+          "modified_at": "2026-07-08 17:40:21"
+        },
+        {
+          "file_name": "규정개정(안)정리_20260708.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/규정개정(안)정리_20260708.hwp",
+          "modified_at": "2026-07-08 14:02:27"
         }
       ],
       "extension_stats": [
         {
+          "extension": ".xlsx",
+          "file_count": 952
+        },
+        {
+          "extension": ".pdf",
+          "file_count": 864
+        },
+        {
+          "extension": ".docx",
+          "file_count": 306
+        },
+        {
+          "extension": ".pptx",
+          "file_count": 230
+        },
+        {
+          "extension": ".hwp",
+          "file_count": 210
+        },
+        {
+          "extension": ".jpg",
+          "file_count": 103
+        },
+        {
+          "extension": ".xls",
+          "file_count": 77
+        },
+        {
+          "extension": ".doc",
+          "file_count": 62
+        },
+        {
           "extension": ".zip",
-          "file_count": 1
+          "file_count": 43
+        },
+        {
+          "extension": ".png",
+          "file_count": 35
         }
       ],
       "priority_review_file_candidates": [
         {
-          "file_name": "small.zip",
-          "relative_path": ".tmp_chatbot_small_package/small.zip",
-          "modified_at": "2026-07-13 21:54:20",
-          "size_bytes": 53940719
+          "file_name": "2.1 영업직 인센티브 운영안.hwp",
+          "relative_path": "크몽/2026년 6월 네오비타/결과물/2.1 영업직 인센티브 운영안.hwp",
+          "modified_at": "2026-07-16 10:06:35",
+          "size_bytes": 163328
+        },
+        {
+          "file_name": "2. 업무량 진단 및 적정 거래처 기준 수립 보고서_1.xlsx",
+          "relative_path": "크몽/2026년 6월 채움세무법인/결과물/2. 업무량 진단 및 적정 거래처 기준 수립 보고서_1.xlsx",
+          "modified_at": "2026-07-15 20:26:54",
+          "size_bytes": 156261
+        },
+        {
+          "file_name": "11. 조직문화 및 동기부여.docx",
+          "relative_path": "크몽/2026년 6월 채움세무법인/결과물/11. 조직문화 및 동기부여.docx",
+          "modified_at": "2026-07-15 12:34:20",
+          "size_bytes": 43308
+        },
+        {
+          "file_name": "1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715_1.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715_1.hwp",
+          "modified_at": "2026-07-15 11:00:38",
+          "size_bytes": 38912
+        },
+        {
+          "file_name": "1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715.hwp",
+          "relative_path": "크몽/2025년 7월 한국관광협회중앙회/작업물/2. 규정 개정/규정 작업/1.9 한국관광협회중앙회_여비규정(검토,작성)_20260715.hwp",
+          "modified_at": "2026-07-15 10:39:27",
+          "size_bytes": 36352
         }
       ]
     }

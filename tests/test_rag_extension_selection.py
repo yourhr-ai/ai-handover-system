@@ -64,6 +64,7 @@ class RagExtensionSelectionTests(unittest.TestCase):
         self.assertEqual(weights[(".xlsx", ".xls")], 12)
 
     def test_dialog_shows_badges_and_merged_long_processing_notice(self):
+        from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QLabel
         from app.ui.main_window import FileContentExtensionDialog
 
@@ -101,6 +102,15 @@ class RagExtensionSelectionTests(unittest.TestCase):
             "파일명/경로/수정일만 포함.",
             summary_label.text(),
         )
+        # Line 2 only: 9.5pt, normal weight, desaturated pale blue — line 1
+        # keeps whatever bold/13px/status-color style SUMMARY_STYLE_* set.
+        self.assertEqual(summary_label.textFormat(), Qt.TextFormat.RichText)
+        self.assertRegex(
+            summary_label.text(),
+            r'<span style="font-size: 9\.5pt; font-weight: normal; color: #7B9DC7;">'
+            r"※ \[문서 외 파일.+파일명/경로/수정일만 포함\.</span>$",
+        )
+        self.assertIn("font-weight: 700", summary_label.styleSheet())
         self.assertTrue(
             all(combo.currentText() == "1메가" for combo, _ in dialog._extension_limit_combos)
         )
@@ -141,6 +151,7 @@ class RagExtensionSelectionTests(unittest.TestCase):
         app.processEvents()
 
     def test_dialog_size_limit_options_and_live_target_count(self):
+        from PySide6.QtCore import Qt
         from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QLabel
         from app.ui.main_window import FileContentExtensionDialog
 
@@ -170,10 +181,11 @@ class RagExtensionSelectionTests(unittest.TestCase):
             )
             self.assertEqual(combo.currentText(), "1메가")
         self.assertIn("1개 파일", estimate_label.text())
+        self.assertEqual(estimate_label.textFormat(), Qt.TextFormat.RichText)
         self.assertRegex(
             estimate_label.text(),
-            r"^1개 파일\(처리 용량 : \d+\.\dGB\) → 패키지 생성\(약 .+ 소요\) \| [^\n]+\n"
-            r"※ \[문서 외 파일.+파일명/경로/수정일만 포함\.$",
+            r"^1개 파일\(처리 용량 : \d+\.\dGB\) → 패키지 생성\(약 .+ 소요\) \| [^<]+<br>"
+            r'<span style="[^"]*">※ \[문서 외 파일.+파일명/경로/수정일만 포함\.</span>$',
         )
         self.assertEqual(
             benefit_label.text(),
@@ -182,8 +194,8 @@ class RagExtensionSelectionTests(unittest.TestCase):
         self.assertIn("#7C3AED", benefit_label.styleSheet())
         self.assertRegex(
             estimate_label.text(),
-            r"약 (10분|15~20분|30분|1시간|\d+시간) 소요\) \| [^\n]+\n"
-            r"※ \[문서 외 파일.+파일명/경로/수정일만 포함\.$",
+            r"약 (10분|15~20분|30분|1시간|\d+시간) 소요\) \| [^<]+<br>"
+            r'<span style="[^"]*">※ \[문서 외 파일.+파일명/경로/수정일만 포함\.</span>$',
         )
         # No saved license -> the quota lookup can't run, so the dialog must
         # fail closed: show the failure state and keep [확인] disabled.

@@ -3,8 +3,8 @@ import json
 import os
 import re
 
-from app.api_config import load_api_key
 from app.config import GPT_MODEL
+from app.services.ai_proxy_client import InsufficientCreditsError, call_chat
 from app.services.analysis_result import AnalyzedFile, WorkMemo
 from app.services.file_content_extractor import extract_file_summary
 from app.services.report_writer import get_combined_priority_review_files_for_memo
@@ -121,29 +121,26 @@ def analyze_memo_with_ai(
     memo: WorkMemo,
     priority_review_files: list[AnalyzedFile],
     root_folder_path: str,
+    license_code: str,
     parsed_emails: list[dict] | None = None,
 ) -> dict[str, str | list] | None:
-    api_key = load_api_key()
-    if not api_key:
-        return None
-
     user_message = _build_user_message(
         memo, priority_review_files, root_folder_path, parsed_emails
     )
 
     try:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=GPT_MODEL,
-            messages=[
+        response = call_chat(
+            license_code,
+            "report",
+            GPT_MODEL,
+            [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message},
             ],
             response_format={"type": "json_object"},
         )
-        parsed = json.loads(response.choices[0].message.content)
+        parsed = json.loads(response["content"])
+        usage = response.get("usage", {})
         result = {
             "status_summary": str(parsed.get("status_summary", "")),
             # precautions_and_tasks/cross_check may legitimately come back as a
@@ -154,8 +151,8 @@ def analyze_memo_with_ai(
             "kakao_summary": str(parsed.get("kakao_summary", "")),
             "cross_check": parsed.get("cross_check", ""),
             "_usage": {
-                "prompt_tokens": int(getattr(response.usage, "prompt_tokens", 0) or 0),
-                "completion_tokens": int(getattr(response.usage, "completion_tokens", 0) or 0),
+                "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+                "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
             },
         }
         print(
@@ -164,6 +161,8 @@ def analyze_memo_with_ai(
             f" kakao_summary={result['kakao_summary']!r:.80}"
         )
         return result
+    except InsufficientCreditsError:
+        raise
     except Exception as exc:
         import traceback
         print(f"[AI분석-인수인계서][DBG3 gpt_EXCEPTION] title={memo.title!r} error={exc!r}")
@@ -184,6 +183,7 @@ def get_or_refresh_ai_result(
     memo: WorkMemo,
     all_files: list[AnalyzedFile],
     root_folder_path: str,
+    license_code: str,
     parsed_emails: list[dict] | None = None,
 ) -> dict[str, str | list] | None:
     content_hash = compute_memo_content_hash(memo)
@@ -208,7 +208,7 @@ def get_or_refresh_ai_result(
         memo,
     )
     ai_result = analyze_memo_with_ai(
-        memo, priority_review_files, root_folder_path, parsed_emails
+        memo, priority_review_files, root_folder_path, license_code, parsed_emails
     )
     memo.ai_result = ai_result
     memo.ai_result_content_hash = content_hash

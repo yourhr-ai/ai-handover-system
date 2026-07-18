@@ -1,5 +1,4 @@
 import hashlib
-import base64
 from collections import deque
 from concurrent.futures import (
     FIRST_COMPLETED,
@@ -24,6 +23,7 @@ from html import unescape
 from pathlib import Path
 from typing import Any, Callable
 
+from app.services.ai_proxy_client import PayloadTooLargeError, call_embeddings
 from app.services.analysis_result import AnalysisResult, AnalyzedFile
 from app.services.parallel_file_runner import (
     recommended_file_workers,
@@ -649,13 +649,13 @@ def _split_text_for_file(text: str, file_name: str) -> list[str]:
 
 def embed_chunks(
     chunks: list[str],
-    api_key: str,
+    license_code: str,
     progress_callback: Callable[[str, int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> list[dict]:
     embedded, _failures, _embedding_tokens = _embed_chunks_with_failures(
         chunks,
-        api_key,
+        license_code,
         progress_callback,
         cancel_check,
     )
@@ -664,13 +664,10 @@ def embed_chunks(
 
 def _embed_chunks_with_failures(
     chunks: list[str],
-    api_key: str,
+    license_code: str,
     progress_callback: Callable[[str, int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[list[dict], list[dict], int]:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key)
     batches = _build_embedding_batches(chunks)
     total_batches = len(batches)
     if total_batches == 0:
@@ -682,9 +679,8 @@ def _embed_chunks_with_failures(
         if EMBEDDING_REQUEST_DELAY_SECONDS > 0:
             time.sleep(EMBEDDING_REQUEST_DELAY_SECONDS)
         _raise_if_cancelled(cancel_check)
-        response = _create_embedding_with_retry(client, batch)
+        vectors, tokens = _create_embedding_with_retry(license_code, batch)
         _raise_if_cancelled(cancel_check)
-        vectors = [item.embedding for item in response.data]
         batch_embedded: list[dict] = []
         for offset, (chunk_text, vector) in enumerate(zip(batch, vectors)):
             batch_embedded.append(
@@ -695,8 +691,6 @@ def _embed_chunks_with_failures(
                     "chunk_index": start + offset,
                 }
             )
-        usage = getattr(response, "usage", None)
-        tokens = int(getattr(usage, "total_tokens", 0) or getattr(usage, "prompt_tokens", 0) or 0)
         return batch_embedded, tokens
 
     results: list[list[dict] | None] = [None] * total_batches
@@ -774,7 +768,6 @@ def save_rag_package(
     chunks_with_embeddings: list[dict],
     analysis_result: AnalysisResult,
     output_path: str,
-    api_key: str,
     source_map: dict[str, dict[str, Any]] | None = None,
     excluded_files: list[dict] | None = None,
     embedding_failures: list[dict] | None = None,
@@ -838,7 +831,6 @@ def save_rag_package(
             json.dumps(embedding_failures, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        (package_path / "api_key.dat").write_bytes(base64.b64encode(api_key.encode("utf-8")))
         _raise_if_cancelled(cancel_check)
         _zip_package_folder(package_path, zip_path, cancel_check)
         _raise_if_cancelled(cancel_check)
@@ -1355,7 +1347,7 @@ def _build_checkpoint_signature(
 def build_and_save_rag_package(
     analysis_result: AnalysisResult,
     folder_paths: list[str],
-    api_key: str,
+    license_code: str,
     output_path: str,
     parsed_emails: list[dict] | None = None,
     kakao_file_paths: list[str] | None = None,
@@ -1560,7 +1552,7 @@ def build_and_save_rag_package(
 
     embedded, embedding_failures, embedding_tokens = _embed_chunk_records(
         chunk_records,
-        api_key,
+        license_code,
         progress_callback,
         cancel_check,
     )
@@ -1574,7 +1566,6 @@ def build_and_save_rag_package(
         embedded,
         analysis_result,
         output_path,
-        api_key,
         source_map=source_map,
         excluded_files=excluded_files,
         embedding_failures=embedding_failures,
@@ -1839,11 +1830,25 @@ def _tail_overlap(text: str, overlap: int) -> str:
     return text[-overlap:].strip()
 
 
-def _create_embedding_with_retry(client: Any, batch: list[str]) -> Any:
+def _create_embedding_with_retry(license_code: str, batch: list[str]) -> tuple[list[list[float]], int]:
+    """Calls the /api/handover/ai/embeddings proxy for one batch, retrying
+    transient failures with backoff. If the server ever rejects the batch as
+    too large (413) - which should not normally happen since this file's own
+    batching policy already matches the server's limit - the batch is split in
+    half and each half is embedded (and, if needed, further split) separately,
+    rather than failing the whole batch outright."""
     last_exception: Exception | None = None
     for attempt in range(EMBEDDING_RETRY_ATTEMPTS):
         try:
-            return client.embeddings.create(model=EMBEDDING_MODEL, input=batch)
+            result = call_embeddings(license_code, batch)
+            return result["embeddings"], int(result.get("usage", {}).get("total_tokens", 0) or 0)
+        except PayloadTooLargeError:
+            if len(batch) <= 1:
+                raise
+            midpoint = len(batch) // 2
+            left_vectors, left_tokens = _create_embedding_with_retry(license_code, batch[:midpoint])
+            right_vectors, right_tokens = _create_embedding_with_retry(license_code, batch[midpoint:])
+            return [*left_vectors, *right_vectors], left_tokens + right_tokens
         except Exception as exc:
             last_exception = exc
             if attempt == EMBEDDING_RETRY_ATTEMPTS - 1:
@@ -1859,14 +1864,14 @@ def _create_embedding_with_retry(client: Any, batch: list[str]) -> Any:
 
 def _embed_chunk_records(
     chunk_records: list[dict],
-    api_key: str,
+    license_code: str,
     progress_callback: Callable[[str, int, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> tuple[list[dict], list[dict], int]:
     texts = [record["chunk_text"] for record in chunk_records]
     embedded, failures, embedding_tokens = _embed_chunks_with_failures(
         texts,
-        api_key,
+        license_code,
         progress_callback,
         cancel_check,
     )

@@ -1,12 +1,8 @@
-import base64
-import binascii
 import html
 import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
-import zipfile
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, QThread, QTimer, Signal
@@ -28,16 +24,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.api_config import load_api_key
 from app.size_units import bytes_to_gb
-from app.license import load_saved_license_code
+from app.license import is_license_active, load_saved_license_code
 from app.license_credits import (
     check_balance,
-    consume_credits,
     flush_pending_consumptions,
-    precheck_action,
     submit_chat_feedback,
 )
+from app.services.ai_proxy_client import InsufficientCreditsError
 from app.services.package_loader import (
     PackageLoadCancelled,
     load_packages_from_folder,
@@ -84,33 +78,19 @@ class ChatAnswerWorker(QThread):
         self,
         query: str,
         search_index: ChunkSearchIndex,
-        api_key: str,
         license_code: str,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.query = query
         self.search_index = search_index
-        self.api_key = api_key
         self.license_code = license_code
 
     def run(self) -> None:
         try:
             started_at = time.perf_counter()
-            # License availability and query embedding are independent network calls;
-            # overlap them so license latency is not added to every question.
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                precheck_future = executor.submit(precheck_action, self.license_code, "chat")
-                embedding_future = executor.submit(embed_query, self.query, self.api_key)
-                precheck = precheck_future.result()
-                precheck_finished_at = time.perf_counter()
-                query_embedding = embedding_future.result()
+            query_embedding = embed_query(self.query, self.license_code)
             embedding_finished_at = time.perf_counter()
-            if precheck is not None and precheck.get("allowed") is False:
-                self.rejected.emit(
-                    "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요."
-                )
-                return
 
             relevant_chunks = search_relevant_chunks(
                 query_embedding,
@@ -126,18 +106,21 @@ class ChatAnswerWorker(QThread):
                     first_delta_at = time.perf_counter()
                 self.answer_delta.emit(delta)
 
-            answer = generate_answer(
-                self.query,
-                relevant_chunks,
-                self.api_key,
-                on_answer_delta=emit_delta,
-            )
+            try:
+                answer = generate_answer(
+                    self.query,
+                    relevant_chunks,
+                    self.license_code,
+                    on_answer_delta=emit_delta,
+                )
+            except InsufficientCreditsError as exc:
+                self.rejected.emit(exc.message)
+                return
             answer_finished_at = time.perf_counter()
             usage = answer.setdefault("_usage", {})
             usage["embedding_tokens"] = int(getattr(query_embedding, "usage_tokens", 0))
             answer["_timings"] = {
-                "precheck_seconds": precheck_finished_at - started_at,
-                "embedding_seconds": embedding_finished_at - precheck_finished_at,
+                "embedding_seconds": embedding_finished_at - started_at,
                 "search_seconds": search_finished_at - embedding_finished_at,
                 "first_answer_text_seconds": (
                     first_delta_at - started_at if first_delta_at is not None else None
@@ -157,21 +140,14 @@ class CreditUsageWorker(QThread):
     def __init__(
         self,
         license_code: str,
-        usage: dict,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.license_code = license_code
-        self.usage = usage
 
     def run(self) -> None:
-        consume_credits(
-            self.license_code,
-            "chat",
-            prompt_tokens=self.usage.get("prompt_tokens", 0),
-            completion_tokens=self.usage.get("completion_tokens", 0),
-            embedding_tokens=self.usage.get("embedding_tokens", 0),
-        )
+        # The server already reserved/finalized credits inside the chat proxy
+        # call itself - this worker only refreshes the balance shown in the UI.
         flush_pending_consumptions()
         self.balance_ready.emit(self.license_code, check_balance(self.license_code))
 
@@ -234,7 +210,6 @@ class PackageLoadWorker(QThread):
                 packages = load_packages_from_gdrive_link(str(self.source))
                 if cancel_check():
                     raise PackageLoadCancelled()
-                api_key = load_api_key()
             else:
                 folder = Path(self.source)
                 selected_package_count, selected_package_bytes = (
@@ -251,7 +226,6 @@ class PackageLoadWorker(QThread):
                         progress_callback=progress_callback,
                         cancel_check=cancel_check,
                     )
-                api_key = _load_api_key_from_package_folder(folder) or load_api_key()
             packages = [*self.existing_packages, *packages]
             merged = merge_and_deduplicate_chunks(
                 packages,
@@ -283,7 +257,6 @@ class PackageLoadWorker(QThread):
                 "packages": packages,
                 "chunks": chunks,
                 "search_index": search_index,
-                "api_key": api_key,
                 "selected_package_count": (
                     selected_package_count if self.source_kind == "folder" else 0
                 ),
@@ -307,7 +280,6 @@ class ChatbotDialog(QDialog):
         self.packages: list[dict] = []
         self.chunks: list[dict] = []
         self.search_index: ChunkSearchIndex | None = None
-        self.api_key: str | None = None
         self.package_load_worker: PackageLoadWorker | None = None
         self.package_loading_timer = QTimer(self)
         self.package_loading_timer.setInterval(350)
@@ -574,7 +546,6 @@ class ChatbotDialog(QDialog):
         self.packages = result["packages"]
         self.chunks = result["chunks"]
         self.search_index = result["search_index"]
-        self.api_key = result.get("api_key") or self.api_key
         self._selected_package_count = int(result.get("selected_package_count", 0))
         self._selected_package_bytes = int(result.get("selected_package_bytes", 0))
 
@@ -616,10 +587,10 @@ class ChatbotDialog(QDialog):
             "불러왔습니다."
         )
 
-        if not self.api_key:
+        if not is_license_active():
             self.question_requirement_label.show()
-            self.status_label.setText("API 키를 먼저 설정해주세요.")
-            self._add_system_message("API 키를 먼저 설정해주세요.")
+            self.status_label.setText("라이선스를 먼저 등록해주세요.")
+            self._add_system_message("라이선스를 먼저 등록해주세요.")
             self.question_input.setEnabled(False)
             self.send_button.setEnabled(False)
             return
@@ -636,7 +607,7 @@ class ChatbotDialog(QDialog):
         self._add_system_message(f"패키지 로드에 실패했습니다. {error_message}")
         self.select_folder_button.setEnabled(True)
         self.load_gdrive_button.setEnabled(True)
-        can_ask = bool(self.packages and self.chunks and self.search_index and self.api_key)
+        can_ask = bool(self.packages and self.chunks and self.search_index and is_license_active())
         self.question_requirement_label.setVisible(not can_ask)
         self.question_input.setEnabled(can_ask)
         self.send_button.setEnabled(can_ask)
@@ -648,7 +619,7 @@ class ChatbotDialog(QDialog):
         self._add_system_message("패키지 불러오기가 취소되었습니다.")
         self.select_folder_button.setEnabled(True)
         self.load_gdrive_button.setEnabled(True)
-        can_ask = bool(self.packages and self.chunks and self.search_index and self.api_key)
+        can_ask = bool(self.packages and self.chunks and self.search_index and is_license_active())
         self.question_requirement_label.setVisible(not can_ask)
         self.question_input.setEnabled(can_ask)
         self.send_button.setEnabled(can_ask)
@@ -710,8 +681,8 @@ class ChatbotDialog(QDialog):
         if not self.chunks or self.search_index is None:
             QMessageBox.warning(self, "물어보기", "패키지 폴더를 먼저 선택해주세요.")
             return
-        if not self.api_key:
-            QMessageBox.warning(self, "물어보기", "API 키를 먼저 설정해주세요.")
+        if not is_license_active():
+            QMessageBox.warning(self, "물어보기", "라이선스를 먼저 등록해주세요.")
             return
 
         self._add_user_message(query)
@@ -726,7 +697,6 @@ class ChatbotDialog(QDialog):
         self.worker = ChatAnswerWorker(
             query,
             self.search_index,
-            self.api_key,
             load_saved_license_code() or "",
             self,
         )
@@ -775,7 +745,7 @@ class ChatbotDialog(QDialog):
 
         self.status_label.setText("답변 완료")
         self._set_busy(False)
-        self._start_credit_usage_update(result.get("_usage", {}))
+        self._start_credit_usage_update()
 
     def _handle_answer_delta(self, delta: str) -> None:
         if not delta or self.streaming_answer_label is None:
@@ -817,11 +787,11 @@ class ChatbotDialog(QDialog):
         self.pending_question = ""
         self._set_busy(False)
 
-    def _start_credit_usage_update(self, usage: dict) -> None:
+    def _start_credit_usage_update(self) -> None:
         license_code = load_saved_license_code() or ""
         if not license_code:
             return
-        worker = CreditUsageWorker(license_code, usage, self)
+        worker = CreditUsageWorker(license_code, self)
         worker.balance_ready.connect(self._apply_credit_balance)
         worker.finished.connect(lambda worker=worker: self._clear_credit_worker(worker))
         worker.finished.connect(worker.deleteLater)
@@ -845,7 +815,7 @@ class ChatbotDialog(QDialog):
 
     def _clear_worker(self) -> None:
         self.worker = None
-        if self.chunks and self.api_key:
+        if self.chunks and is_license_active():
             self.question_input.setEnabled(True)
             self.send_button.setEnabled(True)
 
@@ -1638,61 +1608,3 @@ def _looks_like_google_drive_link(value: str) -> bool:
     return normalized.startswith(("http://", "https://")) and "drive.google.com" in normalized
 
 
-def _load_api_key_from_package_folder(folder: Path) -> str | None:
-    candidates = [folder / "api_key.dat"]
-    try:
-        candidates.extend(child / "api_key.dat" for child in folder.iterdir() if child.is_dir())
-    except OSError:
-        pass
-
-    for candidate in candidates:
-        api_key = _read_api_key_file(candidate)
-        if api_key:
-            return api_key
-
-    try:
-        zip_paths = sorted(folder.glob("*.zip"))
-    except OSError:
-        zip_paths = []
-    for zip_path in zip_paths:
-        api_key = _read_api_key_from_zip(zip_path)
-        if api_key:
-            return api_key
-
-    return None
-
-
-def _read_api_key_from_zip(zip_path: Path) -> str | None:
-    try:
-        with zipfile.ZipFile(zip_path) as archive:
-            for name in archive.namelist():
-                if Path(name).name != "api_key.dat":
-                    continue
-                try:
-                    data = archive.read(name)
-                except KeyError:
-                    continue
-                return _decode_api_key_bytes(data)
-    except (OSError, zipfile.BadZipFile):
-        return None
-    return None
-
-
-def _read_api_key_file(path: Path) -> str | None:
-    if not path.is_file():
-        return None
-    try:
-        return _decode_api_key_bytes(path.read_bytes())
-    except OSError:
-        return None
-
-
-def _decode_api_key_bytes(data: bytes) -> str | None:
-    text = data.decode("utf-8", errors="ignore").strip()
-    if text.startswith("sk-"):
-        return text
-    try:
-        decoded = base64.b64decode(data, validate=True).decode("utf-8").strip()
-    except (binascii.Error, UnicodeDecodeError):
-        return text or None
-    return decoded or text or None

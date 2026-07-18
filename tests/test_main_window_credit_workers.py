@@ -106,7 +106,15 @@ class MainWindowCreditWorkerTests(unittest.TestCase):
         source = (Path(__file__).parents[1] / "app/ui/main_window.py").read_text(encoding="utf-8")
         self.assertNotIn("reserve_credits(", source)
         self.assertNotIn("finalize_credit_reservation(", source)
-        self.assertIn('precheck_action(self.license_code, "report")', source)
+
+    def test_report_flow_no_longer_precheck_or_consumes_locally(self):
+        # /api/handover/ai/chat now reserves/finalizes credits server-side for
+        # the "report" action, so the exe must not duplicate that with its own
+        # precheck/consume calls.
+        from pathlib import Path
+        source = (Path(__file__).parents[1] / "app/ui/main_window.py").read_text(encoding="utf-8")
+        self.assertNotIn('precheck_action(self.license_code, "report")', source)
+        self.assertNotIn("consume_credits(", source.split("class ReportAiWorker", 1)[1].split("class AnalysisWorker", 1)[0])
 
     def test_startup_flush_and_balance_do_not_block_ui_event_loop(self):
         calls: list[str] = []
@@ -186,26 +194,46 @@ class MainWindowCreditWorkerTests(unittest.TestCase):
         self.assertIn("self._credit_refresh_timer.start(5 * 60 * 1000)", source)
         self.assertIn("QEvent.Type.WindowActivate", source)
 
-    def test_report_precheck_ai_consume_stays_off_ui_thread(self):
+    def test_report_ai_result_stays_off_ui_thread_and_refreshes_balance(self):
         memo = SimpleNamespace()
         calls: list[str] = []
 
-        def slow_precheck(*_args):
-            calls.append("precheck")
+        def slow_ai_result(*_args, **_kwargs):
+            calls.append("ai_result")
             time.sleep(0.15)
-            return {"allowed": True}
+            return {"_usage": {"prompt_tokens": 2}}
 
         with (
-            patch("app.ui.main_window.precheck_action", side_effect=slow_precheck),
-            patch("app.ui.main_window.get_or_refresh_ai_result", return_value={"_usage": {"prompt_tokens": 2}}),
-            patch("app.ui.main_window.consume_credits", side_effect=lambda *_args, **_kwargs: calls.append("consume")),
+            patch("app.ui.main_window.get_or_refresh_ai_result", side_effect=slow_ai_result),
             patch("app.ui.main_window.flush_pending_consumptions", side_effect=lambda: calls.append("flush")),
             patch("app.ui.main_window.check_balance", return_value={}),
         ):
             _run_responsiveness_check(
                 ReportAiWorker([memo], [], "", [], "license")
             )
-        self.assertEqual(calls, ["precheck", "consume", "flush"])
+        self.assertEqual(calls, ["ai_result", "flush"])
+
+    def test_report_ai_insufficient_credits_emits_denied(self):
+        from app.services.ai_proxy_client import InsufficientCreditsError
+
+        memo = SimpleNamespace()
+        denied_calls: list[bool] = []
+
+        worker = ReportAiWorker([memo], [], "", [], "license")
+        worker.denied.connect(lambda: denied_calls.append(True))
+        app = QCoreApplication.instance() or QCoreApplication([])
+        with patch(
+            "app.ui.main_window.get_or_refresh_ai_result",
+            side_effect=InsufficientCreditsError(),
+        ):
+            worker.start()
+            deadline = time.perf_counter() + 2.0
+            while worker.isRunning() and time.perf_counter() < deadline:
+                app.processEvents()
+                time.sleep(0.005)
+            worker.wait(100)
+            app.processEvents()
+        self.assertEqual(denied_calls, [True])
 
 
 if __name__ == "__main__":

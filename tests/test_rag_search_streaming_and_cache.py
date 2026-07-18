@@ -1,5 +1,4 @@
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.services.rag_search import (
@@ -12,15 +11,20 @@ from app.services.rag_search import (
 )
 
 
-def _event(content: str = "", *, prompt_tokens: int = 0, completion_tokens: int = 0):
-    usage = None
-    if prompt_tokens or completion_tokens:
-        usage = SimpleNamespace(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-        )
-    choices = [SimpleNamespace(delta=SimpleNamespace(content=content))] if content else []
-    return SimpleNamespace(choices=choices, usage=usage)
+def _fake_call_chat_stream(pieces, *, prompt_tokens: int = 0, completion_tokens: int = 0):
+    """Stand-in for ai_proxy_client.call_chat_stream: feeds `pieces` to on_delta
+    one at a time, then returns the same shape the real proxy call returns."""
+
+    def fake(*_args, on_delta=None, **_kwargs):
+        for piece in pieces:
+            if on_delta is not None:
+                on_delta(piece)
+        return {
+            "content": "".join(pieces),
+            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens},
+        }
+
+    return fake
 
 
 class RagSearchStreamingAndCacheTests(unittest.TestCase):
@@ -33,13 +37,6 @@ class RagSearchStreamingAndCacheTests(unittest.TestCase):
     def test_generate_answer_streams_body_then_returns_metadata(self):
         payload = "노트북 금액은 ₩1,000,000입니다."
         pieces = [payload[index : index + 7] for index in range(0, len(payload), 7)]
-        stream = [_event(piece) for piece in pieces]
-        stream.append(_event(prompt_tokens=321, completion_tokens=45))
-        client = SimpleNamespace(
-            chat=SimpleNamespace(
-                completions=SimpleNamespace(create=lambda **_kwargs: iter(stream))
-            )
-        )
         chunks = [
             {
                 "chunk_text": "품목: 노트북, 금액: ₩1,000,000",
@@ -50,7 +47,10 @@ class RagSearchStreamingAndCacheTests(unittest.TestCase):
             }
         ]
         deltas: list[str] = []
-        with patch("app.services.rag_search._create_openai_client", return_value=client):
+        with patch(
+            "app.services.rag_search.call_chat_stream",
+            side_effect=_fake_call_chat_stream(pieces, prompt_tokens=321, completion_tokens=45),
+        ):
             result = generate_answer("노트북 금액은?", chunks, "test", deltas.append)
 
         self.assertEqual("".join(deltas), "노트북 금액은 ₩1,000,000입니다.")
@@ -83,11 +83,10 @@ class RagSearchStreamingAndCacheTests(unittest.TestCase):
             "source_path": "업무/급여테이블_20260214.xlsx",
             "similarity_score": 0.31,
         }]
-        stream = [_event("해당 파일은 원문 확인이 필요합니다.")]
-        client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **_kwargs: iter(stream)))
-        )
-        with patch("app.services.rag_search._create_openai_client", return_value=client):
+        with patch(
+            "app.services.rag_search.call_chat_stream",
+            side_effect=_fake_call_chat_stream(["해당 파일은 원문 확인이 필요합니다."]),
+        ):
             result = generate_answer("급여테이블_20260214 파일 알려줘", chunks, "test")
         self.assertEqual(result["confidence"], "확인 필요")
         self.assertEqual(result["sources"], [])
@@ -100,11 +99,10 @@ class RagSearchStreamingAndCacheTests(unittest.TestCase):
             "source_path": "규정/취업규칙.docx",
             "similarity_score": 0.72,
         }]
-        stream = [_event("제공된 자료에서 확인되지 않습니다.")]
-        client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **_kwargs: iter(stream)))
-        )
-        with patch("app.services.rag_search._create_openai_client", return_value=client):
+        with patch(
+            "app.services.rag_search.call_chat_stream",
+            side_effect=_fake_call_chat_stream(["제공된 자료에서 확인되지 않습니다."]),
+        ):
             result = generate_answer("내일 날씨 어때?", chunks, "test")
         self.assertEqual(result["answer"], "관련된 자료를 찾을 수 없습니다.")
         self.assertEqual(result["sources"], [])
@@ -118,11 +116,10 @@ class RagSearchStreamingAndCacheTests(unittest.TestCase):
             "source_path": "인사/휴가규정.docx",
             "similarity_score": 0.6,
         }]
-        stream = [_event("제공된 자료에서 확인되지 않습니다.")]
-        client = SimpleNamespace(
-            chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **_kwargs: iter(stream)))
-        )
-        with patch("app.services.rag_search._create_openai_client", return_value=client):
+        with patch(
+            "app.services.rag_search.call_chat_stream",
+            side_effect=_fake_call_chat_stream(["제공된 자료에서 확인되지 않습니다."]),
+        ):
             result = generate_answer("휴가규정 파일 알려줘", chunks, "test")
         self.assertEqual(result["answer"], "제공된 자료에서 확인되지 않습니다.")
         self.assertEqual(result["confidence"], "확실함")

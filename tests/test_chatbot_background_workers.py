@@ -23,34 +23,34 @@ class ChatbotBackgroundWorkerTests(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QCoreApplication.instance() or QCoreApplication([])
 
-    def test_precheck_wait_does_not_block_ui_event_loop(self):
+    def test_embedding_wait_does_not_block_ui_event_loop(self):
         ticks: list[float] = []
         QTimer.singleShot(20, lambda: ticks.append(time.perf_counter()))
         index = build_chunk_search_index([])
-        worker = ChatAnswerWorker("질문", index, "api-key", "license")
+        worker = ChatAnswerWorker("질문", index, "license")
 
-        def slow_rejection(*_args):
+        def slow_embed(*_args):
             time.sleep(0.15)
-            return {"allowed": False}
+            return [0.0]
 
-        with patch("app.ui.chatbot_dialog.precheck_action", side_effect=slow_rejection):
+        with patch("app.ui.chatbot_dialog.embed_query", side_effect=slow_embed):
             worker.start()
             _wait_for_thread(worker)
 
-        self.assertTrue(ticks, "UI event loop should keep processing while precheck waits")
+        self.assertTrue(ticks, "UI event loop should keep processing while the embedding call waits")
 
-    def test_credit_retry_wait_does_not_block_ui_event_loop(self):
+    def test_credit_balance_refresh_wait_does_not_block_ui_event_loop(self):
         ticks: list[float] = []
         QTimer.singleShot(20, lambda: ticks.append(time.perf_counter()))
-        worker = CreditUsageWorker("license", {})
+        worker = CreditUsageWorker("license")
 
-        def slow_consume(*_args, **_kwargs):
+        def slow_balance(*_args, **_kwargs):
             time.sleep(0.15)
-            return None
+            return {"low_balance": False}
 
         with (
-            patch("app.ui.chatbot_dialog.consume_credits", side_effect=slow_consume),
-            patch("app.ui.chatbot_dialog.check_balance", return_value={"low_balance": False}),
+            patch("app.ui.chatbot_dialog.flush_pending_consumptions", return_value=0),
+            patch("app.ui.chatbot_dialog.check_balance", side_effect=slow_balance),
         ):
             worker.start()
             _wait_for_thread(worker)

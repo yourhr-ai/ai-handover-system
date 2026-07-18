@@ -9,8 +9,8 @@ from pathlib import Path
 from datetime import datetime
 from dataclasses import replace
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, QThread, QTimer, Signal, QSize, Slot, Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPen
+from PySide6.QtCore import QEvent, QThread, QTimer, Signal, QSize, Slot, Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -36,7 +36,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.api_config import load_api_key, save_api_key
 from app.size_units import bytes_to_gb, format_gb
 from app.license import (
     check_server_reachable,
@@ -62,6 +61,7 @@ from app.services.ai_analyzer import (
     compute_memo_content_hash,
     get_or_refresh_ai_result,
 )
+from app.services.ai_proxy_client import InsufficientCreditsError
 from app.services.analysis_result import (
     AnalysisResult,
     AnalyzedFile,
@@ -91,10 +91,8 @@ from app.ui.feedback_dialog import FeedbackDialog
 from app.ui.memodialog import MemoDialog
 
 
-_API_KEY_MASK = "●" * 8
 _LICENSE_CODE_MASK = "●" * 8
 _DAMAGED_LICENSE_CODE_MASK = "●" * 12
-_API_KEY_ALREADY_SET_TOOLTIP = "API 키가 이미 설정되어 있습니다"
 _LICENSE_PURCHASE_URL = "https://yourhr.co.kr"
 _LICENSE_LOCK_DIALOG_TEXT = {
     "not_registered": (
@@ -158,35 +156,6 @@ _LICENSE_LOCK_LABEL_TEXT = {
     "license_terminated": "라이선스가 종료되었습니다",
     "expired": "라이선스가 만료되었습니다",
 }
-_API_KEY_GUIDE_PROMPT = """OpenAI API 키를 처음 발급받으려고 해. 나는 프로그래밍이나 개발
-경험이 전혀 없는 완전 초보자야. 아래 내용을 하나도 빠짐없이,
-아주 자세하고 쉽게 설명해줘.
-1. OpenAI API 키를 발급받으려면 어느 웹사이트에 가야 하는지
-   (정확한 주소와, 일반 ChatGPT 사이트와 다른 곳인지 여부)
-2. 계정이 없다면 가입하는 방법 (이미 ChatGPT 계정이 있다면
-   그걸 그대로 써도 되는지)
-3. 결제 수단(신용카드 등)을 반드시 등록해야 하는지, 등록 안
-   하면 어떻게 되는지
-4. API 키를 실제로 생성하는 화면까지 가는 정확한 경로 (메뉴
-   이름, 버튼 이름까지 구체적으로)
-5. API 키 생성 시 나오는 이름 입력, 권한 설정 같은 옵션들을
-   초보자는 어떻게 선택해야 하는지 (기본값을 써도 되는지)
-6. 생성된 키를 어떻게 안전하게 보관해야 하는지 (키는 한 번만
-   보여주고 다시 못 본다고 하는데 이게 무슨 뜻인지)
-7. 이 키를 사용할 때 실제로 비용이 얼마나 드는지, 어떻게 하면
-   예상치 못한 큰 비용이 나가는 걸 막을 수 있는지 (사용량 한도
-   설정 방법 포함)
-8. 키를 다른 사람에게 보여주거나 공개된 곳에 올리면 왜 위험한지,
-   실수로 노출됐을 때 어떻게 해야 하는지
-전문 용어를 쓸 때는 반드시 쉬운 말로 한 번 더 풀어서 설명해주고,
-각 단계마다 '이렇게 하면 무슨 화면이 나온다'까지 알려줘. 지금
-2026년 기준으로 최신 화면/절차로 알려줘."""
-_API_KEY_GUIDE_BODY = f"""인수인계 프로그램에 사용하는 AI는 현재 가성비가 가장 뛰어난
-GPT를 사용합니다. 아래 프롬프트를 사용하시는 AI에 요청하여,
-OpenAI API를 발급 받고 입력하시기 바랍니다.
-
-[사용하실 프롬프트]
-{_API_KEY_GUIDE_PROMPT}"""
 WINDOW_WIDTH = 633
 WINDOW_MIN_HEIGHT = 727
 OUTER_MARGIN = 6
@@ -194,7 +163,6 @@ MAIN_MARGIN = 20
 MAIN_SECTION_SPACING = 20
 MODE_SECTION_SPACING = 10
 MODE_CARD_SPACING = 12
-MODE_ACTION_SPACING = 12
 ACTION_BUTTON_SPACING = 8
 LIST_HEIGHT = 90
 ACTION_SEPARATOR_HEIGHT = 1
@@ -263,76 +231,6 @@ def _skip_confirmation_dialog(*_args, **_kwargs):
     return QMessageBox.StandardButton.Yes
 
 
-class WorkflowProgressBar(QWidget):
-    """Static 3-step guide for the main handover actions.
-
-    "분석시작" no longer has its own step: [메모 작성 및 인수인계서 저장]
-    now runs analysis automatically when needed, so that stage is folded
-    into "메모작성".
-
-    Intentionally never reflects live completion state (see
-    MemoWorkflowProgressBar in memodialog.py for the same pattern) — this is
-    a purely informational, always-neutral order-of-operations label.
-    """
-
-    STEP_LABELS = ("메모작성", "패키지생성", "물어보기")
-    STEP_COLOR = QColor("#7C3AED")
-    LABEL_COLOR = QColor("#6B7280")
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("workflowProgressBar")
-        self.setMinimumHeight(62)
-        self.setSizePolicy(
-            self.sizePolicy().horizontalPolicy(),
-            self.sizePolicy().verticalPolicy(),
-        )
-
-    def paintEvent(self, _event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        width = max(self.width(), 1)
-        step_count = len(self.STEP_LABELS)
-        side_margin = max(42.0, min(76.0, width * 0.075))
-        available_width = max(1.0, width - (side_margin * 2))
-        centers = [
-            QPointF(side_margin + available_width * index / (step_count - 1), 19.0)
-            for index in range(step_count)
-        ]
-
-        painter.setPen(QPen(self.STEP_COLOR, 2.0, Qt.PenStyle.SolidLine))
-        for index in range(step_count - 1):
-            painter.drawLine(
-                QPointF(centers[index].x() + 14, centers[index].y()),
-                QPointF(centers[index + 1].x() - 14, centers[index + 1].y()),
-            )
-
-        symbol_font = QFont(self.font())
-        symbol_font.setPixelSize(12)
-        symbol_font.setBold(True)
-        label_font = QFont(self.font())
-        label_font.setPixelSize(11)
-
-        for index, center in enumerate(centers):
-            circle = QRectF(center.x() - 12, center.y() - 12, 24, 24)
-            painter.setPen(QPen(self.STEP_COLOR, 2.0))
-            painter.setBrush(QColor("#FFFFFF"))
-            painter.drawEllipse(circle)
-
-            painter.setFont(symbol_font)
-            painter.setPen(self.STEP_COLOR)
-            painter.drawText(circle, Qt.AlignmentFlag.AlignCenter, str(index + 1))
-
-            painter.setFont(label_font)
-            painter.setPen(self.LABEL_COLOR)
-            label_rect = QRectF(center.x() - 58, 37, 116, 20)
-            painter.drawText(
-                label_rect,
-                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                self.STEP_LABELS[index],
-            )
-
-
 class FileContentExtensionDialog(QDialog):
     EXTENSION_GROUPS = (
         ("워드 문서", (".docx",), 3, "워드(DOCX)"),
@@ -368,6 +266,9 @@ class FileContentExtensionDialog(QDialog):
         "padding: 10px 12px; background: #EFF6FF; "
         "border: 1px solid #BFDBFE; border-radius: 6px; }"
     )
+    # Desaturated pale blue for the "문서 외 파일" notice line only — kept
+    # distinct from the bold line-1 color/weight set by SUMMARY_STYLE_*.
+    NOTICE_LINE_COLOR = "#7B9DC7"
     SUMMARY_STYLE_WARNING = (
         "QLabel { color: #E57373; font-size: 13px; font-weight: 700; "
         "padding: 10px 12px; background: #FDEDED; "
@@ -654,11 +555,18 @@ class FileContentExtensionDialog(QDialog):
             self.confirm_button.setEnabled(False)
 
         self.estimated_time_label.setStyleSheet(style)
-        self.estimated_time_label.setText(
+        self.estimated_time_label.setTextFormat(Qt.TextFormat.RichText)
+        line1 = html.escape(
             f"{len(content_files):,}개 파일(처리 용량 : {size_gb:.1f}GB) → "
-            f"패키지 생성({duration_text}){quota_suffix}\n"
+            f"패키지 생성({duration_text}){quota_suffix}"
+        )
+        line2 = html.escape(
             "※ [문서 외 파일(동영상, 이미지, PDF, 캐드, 포토샵 등), 선택 용량 초과 파일]은 "
             "파일명/경로/수정일만 포함."
+        )
+        self.estimated_time_label.setText(
+            f"{line1}<br>"
+            f'<span style="font-size: 9.5pt; font-weight: normal; color: {self.NOTICE_LINE_COLOR};">{line2}</span>'
         )
 
 
@@ -773,7 +681,7 @@ class RagPackageWorker(QThread):
         self,
         analysis_result: AnalysisResult,
         folder_paths: list[str],
-        api_key: str,
+        license_code: str,
         output_path: str,
         parsed_emails: list[dict],
         kakao_file_paths: list[str],
@@ -783,7 +691,7 @@ class RagPackageWorker(QThread):
         super().__init__(parent)
         self.analysis_result = analysis_result
         self.folder_paths = folder_paths
-        self.api_key = api_key
+        self.license_code = license_code
         self.output_path = output_path
         self.parsed_emails = parsed_emails
         self.kakao_file_paths = kakao_file_paths
@@ -811,7 +719,7 @@ class RagPackageWorker(QThread):
             result = build_and_save_rag_package(
                 self.analysis_result,
                 self.folder_paths,
-                self.api_key,
+                self.license_code,
                 self.output_path,
                 parsed_emails=self.parsed_emails,
                 kakao_file_paths=self.kakao_file_paths,
@@ -1181,24 +1089,16 @@ class ReportAiWorker(QThread):
 
     def run(self) -> None:
         try:
-            for _memo in self.pending_memos:
-                precheck = precheck_action(self.license_code, "report")
-                if precheck is not None and precheck.get("allowed") is False:
+            for memo in self.pending_memos:
+                try:
+                    get_or_refresh_ai_result(
+                        memo, self.all_files, self.root_folder_path,
+                        self.license_code, self.parsed_emails,
+                    )
+                except InsufficientCreditsError:
                     self.denied.emit()
                     return
-            for memo in self.pending_memos:
-                ai_result = get_or_refresh_ai_result(
-                    memo, self.all_files, self.root_folder_path, self.parsed_emails
-                )
-                if ai_result is not None:
-                    usage = ai_result.get("_usage", {})
-                    consume_credits(
-                        self.license_code,
-                        "report",
-                        prompt_tokens=usage.get("prompt_tokens", 0),
-                        completion_tokens=usage.get("completion_tokens", 0),
-                    )
-                    flush_pending_consumptions()
+            flush_pending_consumptions()
             self.succeeded.emit(self.license_code, check_balance(self.license_code))
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -1510,6 +1410,7 @@ class MainWindow(QMainWindow):
 
         self.edit_memo_button = QPushButton("메모 작성 및 인수인계서 저장")
         _set_button_role(self.edit_memo_button, "primary")
+        self.edit_memo_button.setObjectName("editMemoButton")
         self.edit_memo_button.setEnabled(True)
         self.create_rag_package_button = QPushButton("인수인계패키지 생성")
         _set_button_role(self.create_rag_package_button, "secondary")
@@ -1527,7 +1428,6 @@ class MainWindow(QMainWindow):
             "QPushButton:hover { color: #475569; background: #F1F5F9; "
             "border-color: #CBD5E1; }"
         )
-        self.workflow_progress = WorkflowProgressBar(self)
         self.save_json_button = QPushButton("JSON 저장")
         _set_button_role(self.save_json_button, "secondary")
 
@@ -1536,12 +1436,8 @@ class MainWindow(QMainWindow):
         self.license_activated, self._license_lock_reason = (
             self._evaluate_startup_license_state()
         )
-        self.license_unlock_button = QPushButton("라이선스 등록")
+        self.license_unlock_button = QPushButton("라이선스")
         _set_button_role(self.license_unlock_button, "secondary")
-        self.api_key = load_api_key()
-        self.api_key_button = QPushButton("GPT API 키")
-        _set_button_role(self.api_key_button, "secondary")
-        self._refresh_api_key_button_state()
 
         self.analysis_mode_notice = QLabel("")
         self.analysis_mode_notice.setObjectName("analysisModeNotice")
@@ -1826,6 +1722,10 @@ class MainWindow(QMainWindow):
         mode_title_row.addWidget(mode_title)
         mode_title_row.addStretch()
         mode_section_layout.addLayout(mode_title_row)
+        # 기본모드/AI모드 카드와 라이선스 버튼을 한 줄에 배치한다. 스트레치 비율
+        # 88:88:6:18은 각각 카드 두 개의 너비, 그 사이 여백, 라이선스 버튼의
+        # 상대적 너비를 그대로 나타낸다(정확히 100을 합할 필요는 없다 - Qt의
+        # 스트레치 계수는 절대 백분율이 아니라 남는 공간을 나누는 상대 비율이다).
         mode_layout = QHBoxLayout()
         mode_layout.setSpacing(MODE_CARD_SPACING)
         mode_layout.addWidget(
@@ -1834,7 +1734,7 @@ class MainWindow(QMainWindow):
                 "기본 모드",
                 "문서, 파일 분석 → 업무 정리",
             ),
-            1,
+            88,
         )
         mode_layout.addWidget(
             self._create_mode_card(
@@ -1842,14 +1742,11 @@ class MainWindow(QMainWindow):
                 "AI 모드",
                 "기본 모드 + GPT 분석",
             ),
-            1,
+            88,
         )
+        mode_layout.addStretch(6)
+        mode_layout.addWidget(self.license_unlock_button, 18)
         mode_section_layout.addLayout(mode_layout)
-        mode_actions_row = QHBoxLayout()
-        mode_actions_row.setSpacing(MODE_ACTION_SPACING)
-        mode_actions_row.addWidget(self.license_unlock_button, 1)
-        mode_actions_row.addWidget(self.api_key_button, 1)
-        mode_section_layout.addLayout(mode_actions_row)
         # Reserved for a possible future mode split (e.g. a separate mail/messenger
         # analysis mode); currently only "basic"/"ai" are selectable.
         mode_section_layout.addWidget(self.analysis_mode_notice)
@@ -1936,12 +1833,18 @@ class MainWindow(QMainWindow):
         action_separator.setFrameShape(QFrame.Shape.HLine)
         action_separator.setFixedHeight(ACTION_SEPARATOR_HEIGHT)
 
+        # Stretch factors: edit_memo_button was originally 5/8 (62.5%) of the
+        # group, then reduced to 80% of that (50%, i.e. 8/16). This is a
+        # further 90% reduction on top of that 80% (0.8 * 0.9 = 0.72 of the
+        # original 62.5% = 45% of the group, i.e. 36/80). The freed 5 of 80
+        # units go one each to the other two buttons (+2.5 percentage points
+        # apiece: 27/80 and 17/80), keeping the group's total width unchanged.
         action_row = QHBoxLayout()
-        action_row.addWidget(self.edit_memo_button, 5)
+        action_row.addWidget(self.edit_memo_button, 36)
         action_row.addSpacing(ACTION_BUTTON_SPACING)
-        action_row.addWidget(self.create_rag_package_button, 2)
+        action_row.addWidget(self.create_rag_package_button, 27)
         action_row.addSpacing(ACTION_BUTTON_SPACING)
-        action_row.addWidget(self.chatbot_button, 1)
+        action_row.addWidget(self.chatbot_button, 17)
 
         footer_row = QHBoxLayout()
         footer_row.setSpacing(8)
@@ -1968,9 +1871,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(analysis_target_frame)
         main_layout.addSpacing(MODE_SECTION_SPACING)
         main_layout.addWidget(action_separator)
-        main_layout.addSpacing(MODE_SECTION_SPACING)
-        main_layout.addWidget(self.workflow_progress)
-        main_layout.addSpacing(4)
+        main_layout.addSpacing(MAIN_SECTION_SPACING)
         main_layout.addLayout(action_row)
         main_layout.addSpacing(FOOTER_SPACING)
         main_layout.addLayout(footer_row)
@@ -1997,7 +1898,6 @@ class MainWindow(QMainWindow):
         self.feedback_button.clicked.connect(self._open_feedback_dialog)
         self.save_json_button.clicked.connect(self._save_json)
         self.license_unlock_button.clicked.connect(self._activate_license)
-        self.api_key_button.clicked.connect(self._configure_api_key)
         self.add_email_files_button.clicked.connect(self._select_email_files)
         self.remove_selected_email_files_button.clicked.connect(
             self._remove_selected_email_files
@@ -2224,65 +2124,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(message)
         layout.addWidget(ok_button)
         dialog.exec()
-
-    def _refresh_api_key_button_state(self) -> None:
-        has_api_key = bool(self.api_key)
-        self.api_key_button.setEnabled(not has_api_key)
-        self.api_key_button.setToolTip(_API_KEY_ALREADY_SET_TOOLTIP if has_api_key else "")
-
-    def _show_api_key_guide_dialog(self) -> None:
-        dialog = QDialog(self)
-        dialog.setWindowTitle("API 키 발급 안내")
-        dialog.resize(620, 520)
-
-        text = QTextEdit(dialog)
-        text.setReadOnly(True)
-        text.setPlainText(_API_KEY_GUIDE_BODY)
-
-        copy_button = QPushButton("프롬프트 복사", dialog)
-        ok_button = QPushButton("확인", dialog)
-        copy_button.clicked.connect(
-            lambda: QApplication.clipboard().setText(_API_KEY_GUIDE_PROMPT)
-        )
-        ok_button.clicked.connect(dialog.accept)
-
-        button_row = QHBoxLayout()
-        button_row.addWidget(copy_button)
-        button_row.addStretch()
-        button_row.addWidget(ok_button)
-
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(text)
-        layout.addLayout(button_row)
-        dialog.exec()
-
-    def _configure_api_key(self) -> None:
-        self.api_key = load_api_key()
-        if not self.api_key:
-            self._show_api_key_guide_dialog()
-
-        api_key, confirmed = QInputDialog.getText(
-            self,
-            "API 키 설정",
-            "OpenAI API 키를 입력하세요:",
-            QLineEdit.EchoMode.Password,
-            _API_KEY_MASK if self.api_key else "",
-        )
-        if not confirmed or not api_key.strip():
-            return
-
-        api_key = api_key.strip()
-        if self.api_key and api_key == _API_KEY_MASK:
-            return
-
-        save_api_key(api_key)
-        self.api_key = api_key
-        self._refresh_api_key_button_state()
-        QMessageBox.information(
-            self,
-            "API 키 설정",
-            "API 키가 저장되었습니다.",
-        )
 
     def _open_chatbot(self) -> None:
         if self._chatbot_dialog is None:
@@ -2754,8 +2595,8 @@ class MainWindow(QMainWindow):
             )
             return False
 
-        if self.selected_analysis_mode == "ai" and not self.api_key:
-            QMessageBox.warning(self, "분석 시작", "API 키를 먼저 설정해주세요.")
+        if self.selected_analysis_mode == "ai" and not self.license_activated:
+            QMessageBox.warning(self, "분석 시작", "라이선스를 먼저 등록해주세요.")
             return False
 
         if not self._confirm_clear_memos_for_analysis_restart():
@@ -2882,14 +2723,13 @@ class MainWindow(QMainWindow):
         self._start_analysis(show_complete_notice=True)
 
     def _create_rag_package(self) -> None:
-        api_key = load_api_key()
-        if not api_key:
-            QMessageBox.warning(self, "인수인계패키지 생성", "API 키를 먼저 설정해주세요.")
+        if not self.license_activated:
+            QMessageBox.warning(self, "인수인계패키지 생성", "라이선스를 먼저 등록해주세요.")
             return
 
-        self._continue_create_rag_package(api_key)
+        self._continue_create_rag_package()
 
-    def _continue_create_rag_package(self, api_key: str) -> None:
+    def _continue_create_rag_package(self) -> None:
         folder_paths = self._get_selected_folder_paths()
         email_file_paths = self._get_selected_email_file_paths()
         kakao_file_paths = self._get_selected_kakao_file_paths()
@@ -2981,7 +2821,7 @@ class MainWindow(QMainWindow):
             self,
         )
         self._rag_package_context = {
-            "api_key": api_key,
+            "license_code": load_saved_license_code() or "",
             "result": result,
             "folder_paths": folder_paths,
             "kakao_file_paths": kakao_file_paths,
@@ -3123,7 +2963,7 @@ class MainWindow(QMainWindow):
         self._start_rag_package_worker(
             context["result"],
             context["folder_paths"],
-            context["api_key"],
+            context["license_code"],
             context["output_path"],
             context["parsed_emails"],
             context["kakao_file_paths"],
@@ -3164,7 +3004,7 @@ class MainWindow(QMainWindow):
         self,
         result: AnalysisResult,
         folder_paths: list[str],
-        api_key: str,
+        license_code: str,
         output_path: str,
         parsed_emails: list[dict],
         kakao_file_paths: list[str],
@@ -3180,7 +3020,7 @@ class MainWindow(QMainWindow):
         worker = RagPackageWorker(
             result,
             folder_paths,
-            api_key,
+            license_code,
             output_path,
             parsed_emails,
             kakao_file_paths,
@@ -4052,7 +3892,7 @@ class MainWindow(QMainWindow):
         result = self.current_analysis_result
         if result is None or result.analysismode != "ai":
             return True
-        if not self.license_activated or not self.api_key:
+        if not self.license_activated:
             return True
 
         pending_memos = [
@@ -4167,7 +4007,6 @@ class MainWindow(QMainWindow):
             self.chatbot_button,
             self.save_json_button,
             self.license_unlock_button,
-            self.api_key_button,
             self.add_email_files_button,
             self.remove_selected_email_files_button,
             self.remove_all_email_files_button,
@@ -4180,9 +4019,6 @@ class MainWindow(QMainWindow):
             self.license_unlock_button.setEnabled(
                 self._license_lock_reason not in ("no_internet", "device_id_failed")
             )
-            return
-        if enabled:
-            self._refresh_api_key_button_state()
 
     def _validate_memos_for_report(self) -> bool:
         if self.current_analysis_result is None:

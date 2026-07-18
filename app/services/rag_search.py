@@ -6,12 +6,15 @@ from difflib import SequenceMatcher
 from typing import Any, Callable
 
 import numpy as np
-from openai import APIError, OpenAI, RateLimitError
 
 from app.config import CHAT_MODEL, CHAT_REASONING_EFFORT
+from app.services.ai_proxy_client import (
+    AiProxyError,
+    InsufficientCreditsError,
+    call_chat_stream,
+    call_embeddings,
+)
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-OPENAI_MAX_RETRIES = 5
 MAX_RELATED_ANSWERS = 1
 DEFAULT_TOP_K = 12
 MAX_SEARCH_RESULTS = 16
@@ -318,19 +321,10 @@ def build_chunk_search_index(
     )
 
 
-def embed_query(query: str, api_key: str) -> list[float]:
-    client = _create_openai_client(api_key)
-    response = client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=query,
-    )
-    usage = getattr(response, "usage", None)
-    tokens = int(getattr(usage, "total_tokens", 0) or getattr(usage, "prompt_tokens", 0) or 0)
-    return _QueryEmbedding(list(response.data[0].embedding), query, tokens)
-
-
-def _create_openai_client(api_key: str) -> OpenAI:
-    return OpenAI(api_key=api_key, max_retries=OPENAI_MAX_RETRIES)
+def embed_query(query: str, license_code: str) -> list[float]:
+    result = call_embeddings(license_code, [query])
+    tokens = int(result.get("usage", {}).get("total_tokens", 0) or 0)
+    return _QueryEmbedding(result["embeddings"][0], query, tokens)
 
 
 def _temporary_api_failure_answer() -> dict:
@@ -524,55 +518,35 @@ def answer_compound_query(
 def generate_answer(
     query: str,
     relevant_chunks: list[dict],
-    api_key: str,
+    license_code: str,
     on_answer_delta: Callable[[str], None] | None = None,
 ) -> dict:
     if not relevant_chunks or not _has_relevant_evidence(query, relevant_chunks):
         return _not_found_answer()
 
-    client = _create_openai_client(api_key)
-    raw_parts: list[str] = []
-    prompt_tokens = 0
-    completion_tokens = 0
     try:
-        response_stream = client.chat.completions.create(
-            model=CHAT_MODEL,
-            reasoning_effort=CHAT_REASONING_EFFORT,
-            messages=[
+        response = call_chat_stream(
+            license_code,
+            "chat",
+            CHAT_MODEL,
+            [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": _build_user_message(query, relevant_chunks)},
             ],
-            max_completion_tokens=ANSWER_MAX_COMPLETION_TOKENS,
-            stream=True,
-            stream_options={"include_usage": True},
+            max_tokens=ANSWER_MAX_COMPLETION_TOKENS,
+            reasoning_effort=CHAT_REASONING_EFFORT,
+            on_delta=on_answer_delta,
         )
-        for event in response_stream:
-            usage = getattr(event, "usage", None)
-            if usage is not None:
-                prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or prompt_tokens)
-                completion_tokens = int(
-                    getattr(usage, "completion_tokens", 0) or completion_tokens
-                )
-            choices = getattr(event, "choices", None) or []
-            if not choices:
-                continue
-            content = getattr(getattr(choices[0], "delta", None), "content", None)
-            if not content:
-                continue
-            delta = str(content)
-            raw_parts.append(delta)
-            if on_answer_delta is not None:
-                on_answer_delta(delta)
-    except RateLimitError:
-        print("API 요청이 많아 잠시 대기 중입니다...")
-        return _temporary_api_failure_answer()
-    except APIError:
+    except InsufficientCreditsError:
+        raise
+    except AiProxyError:
         return _temporary_api_failure_answer()
 
-    answer = "".join(raw_parts).strip()
+    answer = response["content"].strip()
+    usage = response.get("usage", {}) or {}
     usage_result = {
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
+        "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+        "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
     }
     if not answer:
         answer = "제공된 자료에서 확인되지 않습니다."

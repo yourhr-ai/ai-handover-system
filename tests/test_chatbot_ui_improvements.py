@@ -99,14 +99,14 @@ class ChatbotUiImprovementTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             zip_path = Path(directory) / "package.zip"
             zip_path.write_bytes(b"x" * 4096)
-            self.dialog._handle_package_load_succeeded(
-                {
-                    "packages": [{"zip_path": str(zip_path)}],
-                    "chunks": [{"text": "내용"}],
-                    "search_index": object(),
-                    "api_key": "key",
-                }
-            )
+            with patch("app.ui.chatbot_dialog.is_license_active", return_value=True):
+                self.dialog._handle_package_load_succeeded(
+                    {
+                        "packages": [{"zip_path": str(zip_path)}],
+                        "chunks": [{"text": "내용"}],
+                        "search_index": object(),
+                    }
+                )
         texts = [label.text() for label in self.dialog.chat_container.findChildren(QLabel)]
         self.assertFalse(any("패키지 폴더를 선택한 뒤" in text for text in texts))
         self.assertFalse(any("패키지 0개를 로드" in text for text in texts))
@@ -173,14 +173,14 @@ class ChatbotUiImprovementTests(unittest.TestCase):
         loading_label = bubble_row.findChild(QLabel, "packageLoadingLabel")
         self.assertIn("background-color: transparent", loading_label.styleSheet())
 
-        self.dialog._handle_package_load_succeeded(
-            {
-                "packages": [{}],
-                "chunks": [{"text": "내용"}],
-                "search_index": object(),
-                "api_key": "key",
-            }
-        )
+        with patch("app.ui.chatbot_dialog.is_license_active", return_value=True):
+            self.dialog._handle_package_load_succeeded(
+                {
+                    "packages": [{}],
+                    "chunks": [{"text": "내용"}],
+                    "search_index": object(),
+                }
+            )
         self.assertTrue(self.dialog.question_requirement_label.isHidden())
 
 

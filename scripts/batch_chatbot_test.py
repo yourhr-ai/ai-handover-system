@@ -17,8 +17,7 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.api_config import load_api_key
-from app.license_credits import consume_credits, precheck_action
+from app.license_credits import check_balance
 from app.services.package_loader import load_packages_from_folder, merge_and_deduplicate_chunks
 from app.services.rag_search import (
     build_chunk_search_index,
@@ -232,17 +231,12 @@ def _as_int(value: Any) -> int | None:
         return None
 
 
-def _credits_used(precheck: dict | None, consume: dict | None) -> int | None:
-    if consume:
-        for key in ("credits_used", "used_credits", "cost", "charged_amount"):
-            value = _as_int(consume.get(key))
-            if value is not None:
-                return max(0, value)
-    before = _as_int((precheck or {}).get("balance"))
-    after = _as_int((consume or {}).get("balance_after"))
+def _credits_used(balance_before: dict | None, balance_after: dict | None) -> int | None:
+    before = _as_int((balance_before or {}).get("balance"))
+    after = _as_int((balance_after or {}).get("balance"))
     if before is not None and after is not None:
         return max(0, before - after)
-    return _as_int((precheck or {}).get("estimated_cost"))
+    return None
 
 
 def _cell(value: object) -> str:
@@ -328,9 +322,6 @@ def main() -> int:
     package_folder = args.package_folder.expanduser().resolve()
     if not package_folder.is_dir():
         raise SystemExit(f"패키지 폴더가 없습니다: {package_folder}")
-    api_key = load_api_key()
-    if not api_key:
-        raise SystemExit("OpenAI API 키가 설정되어 있지 않습니다.")
     questions = _flatten_questions(args.limit)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = (args.output or PROJECT_ROOT / "output" / f"chatbot_test_results_{timestamp}.md").resolve()
@@ -352,38 +343,26 @@ def main() -> int:
     results: list[TestResult] = []
     for sequence, (category, number, question) in enumerate(questions, start=1):
         started = time.perf_counter()
-        precheck = None
-        consume = None
+        balance_before = check_balance(args.license_code)
         answer_text = ""
         has_sources = False
         error = ""
         answer_elapsed = 0.0
         try:
-            precheck = precheck_action(args.license_code, "chat")
-            if precheck is not None and precheck.get("allowed") is False:
-                raise RuntimeError(f"크레딧 사전확인 거절: {precheck}")
-            query_embedding = embed_query(question, api_key)
+            query_embedding = embed_query(question, args.license_code)
             relevant = search_relevant_chunks(
                 query_embedding, query=question, search_index=search_index
             )
-            answer_result = generate_answer(question, relevant, api_key, lambda _delta: None)
-            usage = answer_result.setdefault("_usage", {})
-            usage["embedding_tokens"] = int(getattr(query_embedding, "usage_tokens", 0))
+            answer_result = generate_answer(question, relevant, args.license_code, lambda _delta: None)
             answer_text, sources = _format_full_answer(answer_result)
             has_sources = _has_source_reference(answer_text, sources)
             answer_elapsed = time.perf_counter() - started
-            consume = consume_credits(
-                args.license_code,
-                "chat",
-                prompt_tokens=usage.get("prompt_tokens", 0),
-                completion_tokens=usage.get("completion_tokens", 0),
-                embedding_tokens=usage.get("embedding_tokens", 0),
-            )
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             if answer_elapsed == 0.0:
                 answer_elapsed = time.perf_counter() - started
-        credit_count = _credits_used(precheck, consume)
+        balance_after = check_balance(args.license_code)
+        credit_count = _credits_used(balance_before, balance_after)
         results.append(TestResult(
             category, number, question, answer_text, answer_elapsed, credit_count, has_sources, error
         ))

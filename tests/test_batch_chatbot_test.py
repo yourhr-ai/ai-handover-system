@@ -17,7 +17,7 @@ class BatchChatbotTestScriptTests(unittest.TestCase):
 
     def test_credits_use_balance_difference(self):
         self.assertEqual(
-            _credits_used({"balance": 1000}, {"balance_after": 926}),
+            _credits_used({"balance": 1000}, {"balance": 926}),
             74,
         )
 
