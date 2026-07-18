@@ -116,7 +116,7 @@ class PackageBannerTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("background-color: rgba(245, 243, 255, 179)", source)
-        self.assertIn("border: 1px dashed #DDD6FE", source)
+        self.assertIn("border: 1.5px solid #C4B5FD", source)
         self.assertIn("border-radius: 16px", source)
         self.assertIn("padding: 16px 20px", source)
         self.assertIn("banner_label.setMinimumHeight(64)", source)

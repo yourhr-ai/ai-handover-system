@@ -50,8 +50,8 @@ class MemoDialogSafetyAndProgressTest(unittest.TestCase):
 
         information.assert_called_once_with(
             dialog,
-            "업무 메모 저장",
-            "메모가 저장되었습니다.",
+            "인계 내용 저장",
+            "인계 내용이 저장되었습니다.",
         )
         self.assertEqual(dialog.status_label.text(), "")
         dialog.discard_and_close()
@@ -67,7 +67,7 @@ class MemoDialogSafetyAndProgressTest(unittest.TestCase):
         # now opens the handover-QA popup automatically.
         self.assertEqual(
             dialog.workflow_progress.STEP_LABELS,
-            ("메모작성", "자료연결", "메모저장", "인수인계서저장"),
+            ("내용작성", "자료연결", "내용저장", "인수인계서저장"),
         )
         self.assertFalse(hasattr(dialog.workflow_progress, "set_states"))
         self.assertFalse(hasattr(dialog.workflow_progress, "_completed"))

@@ -57,10 +57,17 @@ class HandoverQADialog(QDialog):
             self.category_labels.append(category_label)
             category_row.addWidget(button)
         category_row.addStretch()
-        self.save_button = QPushButton("저장하고 인수인계서 만들기")
+        self.save_button = QPushButton("저장")
         category_row.addWidget(self.save_button)
         self.close_button = QPushButton("닫기")
         category_row.addWidget(self.close_button)
+        # 두 버튼을 [닫기] 버튼 폭에 맞춰 동일하게 고정한다 - 원래 텍스트가
+        # "저장하고 인수인계서 만들기"로 길어서 실제로는 잘려 보였다.
+        common_width = max(
+            self.save_button.sizeHint().width(), self.close_button.sizeHint().width()
+        )
+        self.save_button.setFixedWidth(common_width)
+        self.close_button.setFixedWidth(common_width)
 
         self.question_label = QLabel()
         question_font = QFont(self.question_label.font())

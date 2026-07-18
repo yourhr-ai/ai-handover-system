@@ -95,7 +95,7 @@ class MemoWorkflowProgressBar(QWidget):
     purely informational, always-neutral order-of-operations label.
     """
 
-    STEP_LABELS = ("메모작성", "자료연결", "메모저장", "인수인계서저장")
+    STEP_LABELS = ("내용작성", "자료연결", "내용저장", "인수인계서저장")
     STEP_COLOR = QColor("#7C3AED")
     LABEL_COLOR = QColor("#6B7280")
 
@@ -164,7 +164,7 @@ class MemoDialog(QDialog):
     ) -> None:
         super().__init__(parent)
 
-        self.setWindowTitle("업무 메모 작성")
+        self.setWindowTitle("인수인계서 작성")
         self.setObjectName("memoDialog")
         self.resize(MEMO_DIALOG_WIDTH, MEMO_DIALOG_HEIGHT)
         self.setMinimumSize(MEMO_DIALOG_MIN_WIDTH, MEMO_DIALOG_MIN_HEIGHT)
@@ -201,7 +201,7 @@ class MemoDialog(QDialog):
         self.memo_list = QListWidget()
         self.memo_list.setObjectName("memoList")
         self.memo_list.setFixedHeight(MEMO_LIST_HEIGHT)
-        self.add_button = QPushButton("메모 추가")
+        self.add_button = QPushButton("인계 내용 추가")
         _set_button_role(self.add_button, "secondary")
         self.delete_button = QPushButton("삭제")
         _set_button_role(self.delete_button, "secondary")
@@ -347,15 +347,15 @@ class MemoDialog(QDialog):
 
         left_layout = QVBoxLayout()
         left_layout.setSpacing(0)
-        left_layout.addWidget(self._create_emphasis_label("메모 목록"))
+        left_layout.addWidget(self._create_emphasis_label("인계 내용 목록"))
         left_layout.addSpacing(MEMO_SECTION_SPACING)
         left_layout.addWidget(self.memo_list)
         left_layout.addSpacing(MEMO_TITLE_LABEL_TOP_MARGIN)
-        left_layout.addWidget(self._create_emphasis_label("메모 제목"))
+        left_layout.addWidget(self._create_emphasis_label("인계 내용 제목"))
         left_layout.addSpacing(MEMO_SECTION_SPACING)
         left_layout.addWidget(self.title_input)
         left_layout.addSpacing(MEMO_SECTION_SPACING)
-        left_layout.addWidget(self._create_emphasis_label("메모 내용"))
+        left_layout.addWidget(self._create_emphasis_label("인계 내용 상세"))
         left_layout.addSpacing(MEMO_SECTION_SPACING)
         left_layout.addWidget(self.content_input)
 
@@ -615,10 +615,10 @@ class MemoDialog(QDialog):
 
         QMessageBox.warning(
             self,
-            "메모 작성 필요",
+            "인계 내용 작성 필요",
             (
-                "먼저 메모를 작성해주세요.\n"
-                "[메모 추가] 버튼으로 메모를 만들고 제목/내용을 입력한 후,\n"
+                "먼저 인계 내용을 작성해주세요.\n"
+                "[인계 내용 추가] 버튼으로 인계 내용을 만들고 제목/내용을 입력한 후,\n"
                 "폴더/메일/메신저(카톡)를 선택할 수 있습니다."
             ),
         )
@@ -805,7 +805,7 @@ class MemoDialog(QDialog):
         item = QListWidgetItem()
         item.setFlags(Qt.ItemFlag.NoItemFlags)
 
-        label = QLabel("작성된 메모가 없습니다.\n[메모 추가] 버튼으로 시작하세요")
+        label = QLabel("작성된 인계 내용이 없습니다.\n[인계 내용 추가] 버튼으로 시작하세요")
         label.setObjectName("memoListPlaceholder")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setWordWrap(True)
@@ -1001,7 +1001,7 @@ class MemoDialog(QDialog):
 
         title = self.title_input.text().strip()
         if not title:
-            QMessageBox.warning(self, "업무 메모 저장", "제목을 입력하세요.")
+            QMessageBox.warning(self, "인계 내용 저장", "제목을 입력하세요.")
             return False
 
         memo = self.memos[self.current_memo_index]
@@ -1024,7 +1024,7 @@ class MemoDialog(QDialog):
         )
         self.status_label.clear()
         if show_success_message:
-            QMessageBox.information(self, "업무 메모 저장", "메모가 저장되었습니다.")
+            QMessageBox.information(self, "인계 내용 저장", "인계 내용이 저장되었습니다.")
         return True
 
     def _autosave_current_memo(self) -> None:
@@ -1109,7 +1109,7 @@ class MemoDialog(QDialog):
     def _validate_save_requirements(self) -> bool:
         missing: list[str] = []
         if not self.memos:
-            missing.append("업무 메모를 1개 이상 작성해주세요.")
+            missing.append("인계 내용 1개 이상 작성해주세요.")
         if not any(
             memo.linked_folders
             or memo.linked_files
@@ -1152,15 +1152,15 @@ class MemoDialog(QDialog):
         if not self._validate_completion():
             return
 
-        QMessageBox.information(self, "업무 메모 작성", "작성이 완료되었습니다.")
+        QMessageBox.information(self, "인계 내용 작성", "작성이 완료되었습니다.")
         self.accept()
 
     def _validate_completion(self) -> bool:
         if not self.memos:
             QMessageBox.warning(
                 self,
-                "업무 메모 작성",
-                "최소 1개 이상의 업무 메모를 작성해야 합니다.",
+                "인계 내용 작성",
+                "최소 1개 이상의 인계 내용을 작성해야 합니다.",
             )
             return False
 
@@ -1172,8 +1172,8 @@ class MemoDialog(QDialog):
         if incomplete_memos:
             QMessageBox.warning(
                 self,
-                "업무 메모 작성",
-                "제목 또는 내용이 비어 있는 메모가 있습니다. 확인해주세요.",
+                "인계 내용 작성",
+                "제목 또는 내용이 비어 있는 인계 내용이 있습니다. 확인해주세요.",
             )
             return False
 
@@ -1376,7 +1376,7 @@ class MemoDialog(QDialog):
             return True
         reply = QMessageBox.question(
             self,
-            "업무 메모 작성",
+            "인계 내용 작성",
             "저장하지 않은 내용이 있습니다. 닫으시겠습니까?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

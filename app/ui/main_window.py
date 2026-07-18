@@ -1334,7 +1334,7 @@ class MainWindow(QMainWindow):
         self.current_analysis_analyzed_at: datetime | None = None
         # (folder paths, email paths, kakao paths) signature of the selection
         # that current_analysis_result was actually produced from — compared
-        # against the live selection so [메모 작성 및 인수인계서 저장] can skip
+        # against the live selection so [인수인계서 작성] can skip
         # re-analysis when nothing changed. Set only once analysis succeeds
         # (see _handle_analysis_succeeded), paired with _pending_..., which is
         # captured right before the worker starts so a failed/in-flight run
@@ -1408,14 +1408,14 @@ class MainWindow(QMainWindow):
             "선택된 폴더가 없습니다"
         )
 
-        self.edit_memo_button = QPushButton("메모 작성 및 인수인계서 저장")
+        self.edit_memo_button = QPushButton("인수인계서 작성")
         _set_button_role(self.edit_memo_button, "primary")
         self.edit_memo_button.setObjectName("editMemoButton")
         self.edit_memo_button.setEnabled(True)
         self.create_rag_package_button = QPushButton("인수인계패키지 생성")
         _set_button_role(self.create_rag_package_button, "secondary")
         self.create_rag_package_button.setEnabled(True)
-        self.chatbot_button = QPushButton("물어보기")
+        self.chatbot_button = QPushButton("물어보기(챗봇)")
         _set_button_role(self.chatbot_button, "secondary")
         self.feedback_button = QPushButton("💬 의견 보내기")
         self.feedback_button.setObjectName("feedbackButton")
@@ -1438,6 +1438,7 @@ class MainWindow(QMainWindow):
         )
         self.license_unlock_button = QPushButton("라이선스")
         _set_button_role(self.license_unlock_button, "secondary")
+        self.license_unlock_button.setObjectName("licenseUnlockButton")
 
         self.analysis_mode_notice = QLabel("")
         self.analysis_mode_notice.setObjectName("analysisModeNotice")
@@ -1833,18 +1834,14 @@ class MainWindow(QMainWindow):
         action_separator.setFrameShape(QFrame.Shape.HLine)
         action_separator.setFixedHeight(ACTION_SEPARATOR_HEIGHT)
 
-        # Stretch factors: edit_memo_button was originally 5/8 (62.5%) of the
-        # group, then reduced to 80% of that (50%, i.e. 8/16). This is a
-        # further 90% reduction on top of that 80% (0.8 * 0.9 = 0.72 of the
-        # original 62.5% = 45% of the group, i.e. 36/80). The freed 5 of 80
-        # units go one each to the other two buttons (+2.5 percentage points
-        # apiece: 27/80 and 17/80), keeping the group's total width unchanged.
+        # All three buttons now share the row equally (1:1:1) - the earlier
+        # 45:33.75:21.25 weighting is dropped per the latest request.
         action_row = QHBoxLayout()
-        action_row.addWidget(self.edit_memo_button, 36)
+        action_row.addWidget(self.edit_memo_button, 1)
         action_row.addSpacing(ACTION_BUTTON_SPACING)
-        action_row.addWidget(self.create_rag_package_button, 27)
+        action_row.addWidget(self.create_rag_package_button, 1)
         action_row.addSpacing(ACTION_BUTTON_SPACING)
-        action_row.addWidget(self.chatbot_button, 17)
+        action_row.addWidget(self.chatbot_button, 1)
 
         footer_row = QHBoxLayout()
         footer_row.setSpacing(8)
@@ -2089,6 +2086,7 @@ class MainWindow(QMainWindow):
             _LICENSE_LOCK_LABEL_TEXT.get(self._license_lock_reason, "라이선스가 만료되었습니다")
         )
         self.license_status_label.setVisible(not self.license_activated)
+        self._update_license_unlock_button_style()
         if self.license_activated:
             self._set_all_buttons_enabled(True)
             self._update_start_button_enabled()
@@ -2102,6 +2100,14 @@ class MainWindow(QMainWindow):
         )
         if show_warning:
             QTimer.singleShot(0, self._show_license_lock_warning)
+
+    def _update_license_unlock_button_style(self) -> None:
+        # 등록 완료 상태는 기존 회색(secondary) 스타일을 그대로 둔다 - 여기서는
+        # 미등록 상태에만 연한 보라색 강조를 추가로 얹는다.
+        state = "registered" if self.license_activated else "unregistered"
+        self.license_unlock_button.setProperty("licenseState", state)
+        self.license_unlock_button.style().unpolish(self.license_unlock_button)
+        self.license_unlock_button.style().polish(self.license_unlock_button)
 
     def _show_license_lock_warning(self) -> None:
         title, message_html = _LICENSE_LOCK_DIALOG_TEXT.get(
@@ -3056,6 +3062,9 @@ class MainWindow(QMainWindow):
         label = QLabel(message, dialog)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setWordWrap(True)
+        # "임베딩 처리 중... (000/000 배치)" 등 진행 상태 텍스트를 기존 대비
+        # 110% 크기 + 볼드로 강조해 눈에 잘 띄게 한다.
+        label.setStyleSheet("font-size: 13px; font-weight: bold;")
 
         layout = QVBoxLayout(dialog)
         layout.addStretch()
@@ -3077,7 +3086,7 @@ class MainWindow(QMainWindow):
                 "QLabel { "
                 "color: #2563EB; "
                 "background-color: rgba(245, 243, 255, 179); "
-                "border: 1px dashed #DDD6FE; "
+                "border: 1.5px solid #C4B5FD; "  # 배경(옅은 라벤더)보다 한 톤 진한 보라색 테두리
                 "border-radius: 16px; "
                 "padding: 16px 20px; "
                 "}"
