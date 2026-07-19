@@ -29,6 +29,9 @@ LICENSE_SERVER_BASE_URL = os.environ.get(
 ).rstrip("/")
 LICENSE_ACTIVATE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/activate"
 LICENSE_SERVER_TIMEOUT_SECONDS = 10
+# Portal page where a license key holder charges credits / data-processing
+# quota. Linked from the credit/quota-insufficient notices across the app.
+HANDOVER_PORTAL_URL = f"{LICENSE_SERVER_BASE_URL}/handover/portal"
 
 
 def _parse_validity_code(validity_code: str) -> tuple[str, int] | None:

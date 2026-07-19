@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from app.size_units import bytes_to_gb, format_gb
 from app.license import (
+    HANDOVER_PORTAL_URL,
     check_server_reachable,
     get_device_id,
     is_license_active,
@@ -267,13 +268,8 @@ class FileContentExtensionDialog(QDialog):
         "border: 1px solid #BFDBFE; border-radius: 6px; }"
     )
     # Desaturated pale blue for the "문서 외 파일" notice line only — kept
-    # distinct from the bold line-1 color/weight set by SUMMARY_STYLE_*.
+    # distinct from the bold line-1 color/weight set by SUMMARY_STYLE_NEUTRAL.
     NOTICE_LINE_COLOR = "#7B9DC7"
-    SUMMARY_STYLE_WARNING = (
-        "QLabel { color: #E57373; font-size: 13px; font-weight: 700; "
-        "padding: 10px 12px; background: #FDEDED; "
-        "border: 1px solid #F5C6CB; border-radius: 6px; }"
-    )
 
     @staticmethod
     def processing_time_level(score: int) -> str:
@@ -369,6 +365,30 @@ class FileContentExtensionDialog(QDialog):
         self.estimated_time_label.setWordWrap(True)
         self.estimated_time_label.setStyleSheet(self.SUMMARY_STYLE_NEUTRAL)
         layout.addWidget(self.estimated_time_label)
+
+        # Replaces the old inline " | 처리 용량 결재 필요" suffix on the
+        # summary line above - a stronger, distinctly red-toned notice (vs.
+        # the orange credit notices elsewhere) with its own charge link.
+        # wordWrap off so it never wraps even in a narrow window.
+        self.quota_insufficient_banner = QLabel(self)
+        self.quota_insufficient_banner.setObjectName("quotaInsufficientBanner")
+        self.quota_insufficient_banner.setWordWrap(False)
+        self.quota_insufficient_banner.setOpenExternalLinks(False)
+        self.quota_insufficient_banner.setTextFormat(Qt.TextFormat.RichText)
+        self.quota_insufficient_banner.setStyleSheet(
+            "QLabel { background-color: #FCEBEB; border: 1px solid #E24B4A; "
+            "border-radius: 6px; color: #791F1F; font-size: 11px; "
+            "font-weight: 700; padding: 6px 10px; }"
+        )
+        self.quota_insufficient_banner.setText(
+            f'⚠ 자료처리용량 부족 · <a href="{HANDOVER_PORTAL_URL}" style="color:#C0392B; '
+            'text-decoration:underline;">[라이선스 키]에서 충전 → 바로가기</a>'
+        )
+        self.quota_insufficient_banner.linkActivated.connect(
+            lambda url: QDesktopServices.openUrl(QUrl(url))
+        )
+        self.quota_insufficient_banner.hide()
+        layout.addWidget(self.quota_insufficient_banner)
         # The layout contributes its regular 12px spacing before this spacer,
         # producing an exact 25px visual gap above the purple benefit text.
         layout.addSpacing(13)
@@ -541,18 +561,25 @@ class FileContentExtensionDialog(QDialog):
             quota_suffix = " | 자료 처리 확인 중..."
             style = self.SUMMARY_STYLE_NEUTRAL
             self.confirm_button.setEnabled(False)
+            self.quota_insufficient_banner.hide()
         elif self._quota_state == "failed" or self._remaining_gb is None:
             quota_suffix = " | 자료 처리 확인 실패"
             style = self.SUMMARY_STYLE_NEUTRAL
             self.confirm_button.setEnabled(False)
+            self.quota_insufficient_banner.hide()
         elif size_gb <= self._remaining_gb:
             quota_suffix = f" | 자료 처리 {self._remaining_gb:.2f}GB 가능"
             style = self.SUMMARY_STYLE_NEUTRAL
             self.confirm_button.setEnabled(True)
+            self.quota_insufficient_banner.hide()
         else:
-            quota_suffix = " | 처리 용량 결재 필요"
-            style = self.SUMMARY_STYLE_WARNING
+            # Old inline " | 처리 용량 결재 필요" suffix retired in favor of
+            # quota_insufficient_banner below - keep the summary line neutral
+            # here so the red state is only communicated once, not twice.
+            quota_suffix = ""
+            style = self.SUMMARY_STYLE_NEUTRAL
             self.confirm_button.setEnabled(False)
+            self.quota_insufficient_banner.show()
 
         self.estimated_time_label.setStyleSheet(style)
         self.estimated_time_label.setTextFormat(Qt.TextFormat.RichText)
@@ -598,6 +625,69 @@ class RagPackageProgressDialog(QDialog):
         self._cancel_requested = True
         self._cancel_callback()
         event.accept()
+
+
+class InsufficientCreditPopup(QDialog):
+    """Small notice shown when 인수인계서 저장(AI 분석) is blocked by an
+    empty credit balance. Single [닫기] button - closing this never resumes
+    the save, the user must top up and retry save manually."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("인수인계서 저장")
+        self.setModal(True)
+        # Wide enough that the one-line credit-notice message (with its
+        # 28px side margins) never gets clipped - 360px left ~8px too little
+        # room and visibly cut the trailing "→ 바로가기" off the edge.
+        self.setFixedWidth(400)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 26, 28, 22)
+        layout.setSpacing(14)
+
+        icon_label = QLabel("⚠", self)
+        icon_label.setObjectName("insufficientCreditPopupIcon")
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setFixedSize(56, 56)
+        icon_label.setStyleSheet(
+            "QLabel { background-color: #FAEEDA; color: #EF9F27; "
+            "border-radius: 28px; font-size: 22px; font-weight: 700; }"
+        )
+        layout.addWidget(icon_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        title_label = QLabel("인수인계서를 만들 수 없어요", self)
+        title_label.setObjectName("insufficientCreditPopupTitle")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("font-size: 15px; font-weight: 700; color: #1F2937;")
+        layout.addWidget(title_label)
+
+        # wordWrap intentionally off + RichText so "크레딧 부족 · [라이선스
+        # 키]에서 충전 → 바로가기" always renders on one line, with only the
+        # link portion underlined/colored differently and clickable.
+        message_label = QLabel(self)
+        message_label.setObjectName("insufficientCreditPopupMessage")
+        message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        message_label.setWordWrap(False)
+        message_label.setOpenExternalLinks(False)
+        message_label.setTextFormat(Qt.TextFormat.RichText)
+        message_label.setStyleSheet(
+            "QLabel { background-color: #FAEEDA; border: 1px solid #EF9F27; "
+            "border-radius: 6px; color: #633806; font-size: 12px; padding: 8px 12px; }"
+        )
+        message_label.setText(
+            f'⚠ 크레딧 부족 · <a href="{HANDOVER_PORTAL_URL}" style="color:#B45309; '
+            'text-decoration:underline;">[라이선스 키]에서 충전 → 바로가기</a>'
+        )
+        message_label.linkActivated.connect(
+            lambda url: QDesktopServices.openUrl(QUrl(url))
+        )
+        layout.addWidget(message_label)
+
+        close_button = QPushButton("닫기", self)
+        close_button.setObjectName("insufficientCreditPopupCloseButton")
+        close_button.setFixedWidth(120)
+        close_button.clicked.connect(self.reject)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignHCenter)
 
 
 class DataProcessingPaymentDialog(QDialog):
@@ -3961,11 +4051,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _handle_report_ai_denied(self) -> None:
         self._finish_report_ai_worker()
-        QMessageBox.warning(
-            self,
-            "인수인계서 저장",
-            "크레딧이 부족합니다. 설명서 페이지에서 사용량을 구매해 주세요.",
-        )
+        InsufficientCreditPopup(self).exec()
 
     @Slot(str)
     def _handle_report_ai_failed(self, error_message: str) -> None:

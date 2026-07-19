@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.license import HANDOVER_PORTAL_URL
 from app.services.analysis_result import AnalysisResult, AnalyzedFile
 from app.services.rag_package_builder import (
     RAG_TEXT_EXTRACTION_EXTENSIONS,
@@ -609,7 +610,7 @@ class RagExtensionSelectionTests(unittest.TestCase):
         dialog.close()
         app.processEvents()
 
-    def test_quota_insufficient_disables_confirm_and_shows_warning_style(self):
+    def test_quota_insufficient_disables_confirm_and_shows_quota_banner(self):
         from PySide6.QtWidgets import QApplication
         from app.ui.main_window import FileContentExtensionDialog
 
@@ -639,10 +640,19 @@ class RagExtensionSelectionTests(unittest.TestCase):
             combo, _extensions = dialog._extension_limit_combos[0]
             combo.setCurrentText("제한없음")
             app.processEvents()
-        self.assertIn("처리 용량 결재 필요", dialog.estimated_time_label.text())
+        # Old inline " | 처리 용량 결재 필요" suffix is retired - the summary
+        # line stays neutral now, and the dedicated red banner communicates
+        # the insufficient state instead.
+        self.assertNotIn("처리 용량 결재 필요", dialog.estimated_time_label.text())
+        self.assertIn("#0F172A", dialog.estimated_time_label.styleSheet())
         self.assertFalse(dialog.confirm_button.isEnabled())
-        self.assertIn("#E57373", dialog.estimated_time_label.styleSheet())
-        self.assertIn("font-weight: 700", dialog.estimated_time_label.styleSheet())
+        self.assertTrue(dialog.quota_insufficient_banner.isVisibleTo(dialog))
+        self.assertIn("자료처리용량 부족", dialog.quota_insufficient_banner.text())
+        self.assertIn("[라이선스 키]에서 충전 → 바로가기", dialog.quota_insufficient_banner.text())
+        self.assertIn(HANDOVER_PORTAL_URL, dialog.quota_insufficient_banner.text())
+        self.assertIn("#FCEBEB", dialog.quota_insufficient_banner.styleSheet())
+        self.assertIn("#E24B4A", dialog.quota_insufficient_banner.styleSheet())
+        self.assertIn("#791F1F", dialog.quota_insufficient_banner.styleSheet())
 
         # Shrinking the selected content back under the remaining quota must
         # flip the state back to sufficient in real time, using the already
@@ -651,6 +661,7 @@ class RagExtensionSelectionTests(unittest.TestCase):
         app.processEvents()
         self.assertIn("자료 처리 1.00GB 가능", dialog.estimated_time_label.text())
         self.assertTrue(dialog.confirm_button.isEnabled())
+        self.assertTrue(dialog.quota_insufficient_banner.isHidden())
 
         dialog.close()
         app.processEvents()

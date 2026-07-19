@@ -5,8 +5,8 @@ import re
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QTextCursor, QTextDocument
+from PySide6.QtCore import QEvent, QPoint, QUrl, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QDesktopServices, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.size_units import bytes_to_gb
-from app.license import is_license_active, load_saved_license_code
+from app.license import HANDOVER_PORTAL_URL, is_license_active, load_saved_license_code
 from app.license_credits import (
     check_balance,
     flush_pending_consumptions,
@@ -321,6 +321,7 @@ class ChatbotDialog(QDialog):
         self.packages: list[dict] = []
         self.chunks: list[dict] = []
         self.search_index: ChunkSearchIndex | None = None
+        self._credit_insufficient: bool = False
         self.package_load_worker: PackageLoadWorker | None = None
         self.package_loading_timer = QTimer(self)
         self.package_loading_timer.setInterval(350)
@@ -427,6 +428,30 @@ class ChatbotDialog(QDialog):
         self.question_requirement_label.setStyleSheet(
             "color: #DC2626; font-size: 11px; padding: 0 8px 2px 8px;"
         )
+        # Distinct from question_requirement_label above: that one covers "no
+        # package loaded yet" style blockers, this one is specifically for
+        # "package is loaded and ready, but the license has run out of
+        # credits" - a different actionable state with its own charge link.
+        # font-size is kept small (11px) and wordWrap off specifically so the
+        # whole line - including the link - never wraps even in a narrow window.
+        self.credit_insufficient_banner = QLabel(self)
+        self.credit_insufficient_banner.setObjectName("creditInsufficientBanner")
+        self.credit_insufficient_banner.setWordWrap(False)
+        self.credit_insufficient_banner.setOpenExternalLinks(False)
+        self.credit_insufficient_banner.setTextFormat(Qt.TextFormat.RichText)
+        self.credit_insufficient_banner.setStyleSheet(
+            "QLabel { background-color: #FAEEDA; border: 1px solid #EF9F27; "
+            "border-radius: 6px; color: #633806; font-size: 11px; "
+            "padding: 6px 10px; margin: 0 8px 4px 8px; }"
+        )
+        self.credit_insufficient_banner.setText(
+            f'⚠ 크레딧 부족 · <a href="{HANDOVER_PORTAL_URL}" style="color:#B45309; '
+            'text-decoration:underline;">[라이선스 키]에서 충전 → 바로가기</a>'
+        )
+        self.credit_insufficient_banner.linkActivated.connect(
+            lambda url: QDesktopServices.openUrl(QUrl(url))
+        )
+        self.credit_insufficient_banner.hide()
         self.question_input = QuestionLineEdit()
         self.question_input.setPlaceholderText("질문을 입력하세요...")
         self.question_input.setMinimumHeight(44)
@@ -490,6 +515,7 @@ class ChatbotDialog(QDialog):
         layout.addWidget(self.chat_area, stretch=1)
         layout.addWidget(self.status_label)
         layout.addWidget(self.question_requirement_label)
+        layout.addWidget(self.credit_insufficient_banner)
         layout.addLayout(bottom_row)
 
         self.select_folder_button.clicked.connect(self._select_package_folder)
@@ -604,6 +630,37 @@ class ChatbotDialog(QDialog):
         self.package_loading_timer.start()
         worker.start(QThread.Priority.LowPriority)
 
+    def _base_package_ready(self) -> bool:
+        """Whether a package/chunks/search index/license are all in place.
+
+        Deliberately excludes credit balance - that's tracked separately by
+        _credit_insufficient so the two notices (question_requirement_label
+        vs credit_insufficient_banner) never show at the same time for the
+        same underlying widget state.
+        """
+        return bool(
+            self.packages and self.chunks and self.search_index and is_license_active()
+        )
+
+    def _can_ask_question(self) -> bool:
+        return self._base_package_ready() and not self._credit_insufficient
+
+    def _refresh_question_availability(self) -> None:
+        base_ready = self._base_package_ready()
+        can_ask = base_ready and not self._credit_insufficient
+        self.question_input.setEnabled(can_ask)
+        self.send_button.setEnabled(can_ask)
+        self.credit_insufficient_banner.setVisible(base_ready and self._credit_insufficient)
+        self.question_requirement_label.setVisible(not base_ready)
+
+    def _set_credit_insufficient(self, insufficient: bool) -> None:
+        if self._credit_insufficient == insufficient:
+            return
+        self._credit_insufficient = insufficient
+        self._refresh_question_availability()
+        if not insufficient:
+            self.question_input.setFocus()
+
     def _handle_package_load_succeeded(self, result: dict) -> None:
         self._finish_package_loading_ui()
         self._remove_pending_load()
@@ -659,10 +716,9 @@ class ChatbotDialog(QDialog):
             self.send_button.setEnabled(False)
             return
 
-        self.question_input.setEnabled(True)
-        self.send_button.setEnabled(True)
-        self.question_requirement_label.hide()
-        self.question_input.setFocus()
+        self._refresh_question_availability()
+        if self._can_ask_question():
+            self.question_input.setFocus()
 
     def _handle_package_load_failed(self, error_message: str) -> None:
         self._finish_package_loading_ui()
@@ -671,10 +727,7 @@ class ChatbotDialog(QDialog):
         self._add_system_message(f"패키지 로드에 실패했습니다. {error_message}")
         self.select_folder_button.setEnabled(True)
         self.load_gdrive_button.setEnabled(True)
-        can_ask = bool(self.packages and self.chunks and self.search_index and is_license_active())
-        self.question_requirement_label.setVisible(not can_ask)
-        self.question_input.setEnabled(can_ask)
-        self.send_button.setEnabled(can_ask)
+        self._refresh_question_availability()
 
     def _handle_package_load_canceled(self) -> None:
         self._finish_package_loading_ui()
@@ -683,10 +736,7 @@ class ChatbotDialog(QDialog):
         self._add_system_message("패키지 불러오기가 취소되었습니다.")
         self.select_folder_button.setEnabled(True)
         self.load_gdrive_button.setEnabled(True)
-        can_ask = bool(self.packages and self.chunks and self.search_index and is_license_active())
-        self.question_requirement_label.setVisible(not can_ask)
-        self.question_input.setEnabled(can_ask)
-        self.send_button.setEnabled(can_ask)
+        self._refresh_question_availability()
 
     def _cancel_package_load(self) -> None:
         worker = self.package_load_worker
@@ -738,6 +788,18 @@ class ChatbotDialog(QDialog):
         self.answer_loading_timer.stop()
         super().closeEvent(event)
 
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        # Mirror MainWindow's own window-activate recheck: a user who leaves
+        # this dialog to charge credits in the browser and comes back should
+        # see the banner clear without having to fail another send attempt.
+        if (
+            event.type() == QEvent.Type.ActivationChange
+            and self.isActiveWindow()
+            and self._credit_insufficient
+        ):
+            self._start_credit_usage_update()
+
     def _send_question(self) -> None:
         query = self.question_input.text().strip()
         if not query or self.worker is not None:
@@ -747,6 +809,8 @@ class ChatbotDialog(QDialog):
             return
         if not is_license_active():
             QMessageBox.warning(self, "물어보기", "라이선스를 먼저 등록해주세요.")
+            return
+        if self._credit_insufficient:
             return
 
         self._add_user_message(query)
@@ -809,6 +873,10 @@ class ChatbotDialog(QDialog):
 
         self.status_label.setText("답변 완료")
         self._set_busy(False)
+        # A successful answer is itself proof credits were sufficient a
+        # moment ago - clear any stale insufficient state immediately rather
+        # than waiting on the async balance refresh below.
+        self._set_credit_insufficient(False)
         self._start_credit_usage_update()
 
     def _handle_answer_delta(self, delta: str) -> None:
@@ -850,6 +918,7 @@ class ChatbotDialog(QDialog):
         self.status_label.setText("크레딧 부족")
         self.pending_question = ""
         self._set_busy(False)
+        self._set_credit_insufficient(True)
 
     def _start_credit_usage_update(self) -> None:
         license_code = load_saved_license_code() or ""
@@ -866,6 +935,12 @@ class ChatbotDialog(QDialog):
         parent = self.parent()
         if parent is not None and hasattr(parent, "_apply_credit_balance"):
             parent._apply_credit_balance(license_code, balance)
+        if isinstance(balance, dict):
+            try:
+                remaining = int(balance.get("balance", 0) or 0)
+            except (TypeError, ValueError):
+                return
+            self._set_credit_insufficient(remaining <= 0)
 
     def _clear_credit_worker(self, worker: CreditUsageWorker) -> None:
         self.credit_workers.discard(worker)
@@ -879,9 +954,7 @@ class ChatbotDialog(QDialog):
 
     def _clear_worker(self) -> None:
         self.worker = None
-        if self.chunks and is_license_active():
-            self.question_input.setEnabled(True)
-            self.send_button.setEnabled(True)
+        self._refresh_question_availability()
 
     def _set_busy(self, busy: bool) -> None:
         self.status_label.setText("답변 생성 중..." if busy else self.status_label.text())
