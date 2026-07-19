@@ -10,3 +10,7 @@ build/
 *.spec.bak
 output/*/work/*.exe
 output/*-test*/
+
+# PyArmor obfuscation artifacts
+obf_app/
+pyarmor.bug.log
