@@ -58,7 +58,7 @@ def load_packages_from_folder(
     for zip_path in sorted(package_folder.glob("*.zip")):
         _check_cancel(cancel_check)
         try:
-            package = _load_package_zip(
+            package = load_package_from_zip(
                 zip_path,
                 progress_callback=progress_callback,
                 cancel_check=cancel_check,
@@ -279,12 +279,20 @@ def merge_and_deduplicate_chunks(
     }
 
 
-def _load_package_zip(
+def load_package_from_zip(
     zip_path: Path,
     *,
     progress_callback: Callable[[str, int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> dict | None:
+    """Load a single package directly from a .zip file path.
+
+    Used both by ``load_packages_from_folder``'s per-zip scan loop and by
+    the chatbot's "폴더 또는 zip 파일 선택" dialog when the user picks a
+    single .zip file instead of a folder. Raises ``ValueError`` (with a
+    Korean message suitable for showing directly to the user) if the file
+    isn't a readable zip or doesn't contain a valid package.
+    """
     with tempfile.TemporaryDirectory(prefix="handover_package_") as temp_dir:
         temp_path = Path(temp_dir)
         try:
@@ -296,7 +304,7 @@ def _load_package_zip(
                     cancel_check=cancel_check,
                 )
         except zipfile.BadZipFile as exc:
-            raise ValueError("bad zip file") from exc
+            raise ValueError("올바른 zip 파일이 아닙니다.") from exc
 
         root = _find_package_root(temp_path)
         return _load_package_root(
@@ -361,7 +369,10 @@ def _find_package_root(temp_path: Path) -> Path:
     for candidate in candidates:
         if _is_package_root(candidate):
             return candidate
-    raise ValueError("required package files are missing")
+    raise ValueError(
+        "올바른 인수인계패키지 파일이 아닙니다. "
+        "(manifest.json, chunks.jsonl, source_map.json이 포함되어 있어야 합니다.)"
+    )
 
 
 def _is_package_root(path: Path) -> bool:
