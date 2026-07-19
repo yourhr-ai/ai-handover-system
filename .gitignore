@@ -1,6 +1,12 @@
 config/pending_credit_consumptions.json
-.tmp_chatbot_small_package/
-.tmp_chatbot_large_package/
+.tmp_*/
 *.zip
 __pycache__/
 *.pyc
+
+# PyInstaller build artifacts
+dist/
+build/
+*.spec.bak
+output/*/work/*.exe
+output/*-test*/
