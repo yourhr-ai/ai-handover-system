@@ -22,6 +22,10 @@ _PACKAGE_ORDERS_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/package-generatio
 _DATA_PROCESSING_CHECK_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/data-processing/check"
 _DATA_PROCESSING_CONSUME_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/data-processing/consume"
 _CHAT_FEEDBACK_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/chat-feedback"
+_MISSIONS_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/missions"
+_MISSIONS_CLAIM_LINK_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/missions/claim-link"
+_MISSIONS_SUBMIT_QUIZ_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/missions/submit-quiz"
+_MISSIONS_SUBMIT_REVIEW_URL = f"{LICENSE_SERVER_BASE_URL}/api/handover/missions/submit-review"
 _PENDING_PATH = Path("config") / "pending_credit_consumptions.json"
 _QUEUE_LOCK = threading.Lock()
 _CONSUME_RETRIES = 3
@@ -54,6 +58,77 @@ def _request_json(url: str, *, payload: dict | None = None) -> dict | None:
         logger.warning("크레딧 서버가 JSON 객체가 아닌 응답을 반환했습니다: %s", body)
         return None
     return body
+
+
+def _request_json_with_status(url: str, *, payload: dict | None = None) -> tuple[int, dict] | None:
+    """_request_json과 달리 4xx/5xx 응답의 본문(사유 메시지 등)도 그대로 돌려준다.
+
+    미션 API는 400(오답/스팸)·409(이미 완료)처럼 사용자에게 그대로 보여줘야
+    할 사유가 담긴 실패 응답을 자주 반환하므로, 실패 시 None만 주는
+    _request_json으로는 그 사유를 잃어버린다. 반환값은 (status_code, body)
+    이며, 요청 자체가 실패한 경우(타임아웃/네트워크 오류)에만 None이다.
+    """
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"} if data is not None else {},
+        method="POST" if data is not None else "GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=LICENSE_SERVER_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read().decode("utf-8"))
+            return response.status, (body if isinstance(body, dict) else {})
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, OSError):
+            body = {}
+        return exc.code, (body if isinstance(body, dict) else {})
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        logger.warning("미션 서버 요청에 실패했습니다: %s", exc)
+        return None
+
+
+def get_missions(license_code: str) -> tuple[int, dict] | None:
+    if not license_code:
+        return None
+    query = urllib.parse.urlencode({"licenseCode": license_code.strip()})
+    return _request_json_with_status(f"{_MISSIONS_URL}?{query}")
+
+
+def claim_link_mission(license_code: str, mission_id: str) -> tuple[int, dict] | None:
+    if not license_code or not mission_id:
+        return None
+    return _request_json_with_status(
+        _MISSIONS_CLAIM_LINK_URL,
+        payload={"licenseCode": license_code.strip(), "missionId": mission_id},
+    )
+
+
+def submit_quiz_mission(license_code: str, mission_id: str, answer: str) -> tuple[int, dict] | None:
+    if not license_code or not mission_id:
+        return None
+    return _request_json_with_status(
+        _MISSIONS_SUBMIT_QUIZ_URL,
+        payload={"licenseCode": license_code.strip(), "missionId": mission_id, "answer": answer},
+    )
+
+
+def submit_review_mission(
+    license_code: str, product_id: str, content: str, rating: int
+) -> tuple[int, dict] | None:
+    if not license_code or not product_id:
+        return None
+    return _request_json_with_status(
+        _MISSIONS_SUBMIT_REVIEW_URL,
+        payload={
+            "licenseCode": license_code.strip(),
+            "productId": product_id,
+            "content": content,
+            "rating": int(rating),
+        },
+    )
 
 
 def check_balance(license_code: str) -> dict | None:

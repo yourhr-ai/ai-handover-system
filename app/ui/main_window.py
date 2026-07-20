@@ -57,6 +57,7 @@ from app.license_credits import (
     get_package_generation_order,
     precheck_action,
 )
+from app.ui.mission_dialog import MissionListDialog
 from app.services.ai_analyzer import (
     _REQUIRED_AI_KEYS,
     compute_memo_content_hash,
@@ -1507,6 +1508,17 @@ class MainWindow(QMainWindow):
         self.create_rag_package_button.setEnabled(True)
         self.chatbot_button = QPushButton("물어보기(챗봇)")
         _set_button_role(self.chatbot_button, "secondary")
+        self.credit_earn_button = QPushButton("🎁 크레딧 받기")
+        self.credit_earn_button.setObjectName("creditEarnButton")
+        self.credit_earn_button.setFixedHeight(28)
+        self.credit_earn_button.setMaximumWidth(120)
+        self.credit_earn_button.setStyleSheet(
+            "QPushButton { color: #64748B; background: #F8FAFC; "
+            "border: 1px solid #E2E8F0; border-radius: 6px; "
+            "font-size: 11px; padding: 4px 9px; } "
+            "QPushButton:hover { color: #475569; background: #F1F5F9; "
+            "border-color: #CBD5E1; }"
+        )
         self.feedback_button = QPushButton("💬 의견 보내기")
         self.feedback_button.setObjectName("feedbackButton")
         self.feedback_button.setFixedHeight(28)
@@ -1941,6 +1953,7 @@ class MainWindow(QMainWindow):
         footer_row.addStretch()
         footer_row.addWidget(self.copyright_label)
         footer_row.addStretch()
+        footer_row.addWidget(self.credit_earn_button)
         footer_row.addWidget(self.feedback_button)
 
         header_row_layout = QHBoxLayout()
@@ -1983,6 +1996,7 @@ class MainWindow(QMainWindow):
         self.create_rag_package_button.clicked.connect(self._create_rag_package)
         self.chatbot_button.clicked.connect(self._open_chatbot)
         self.feedback_button.clicked.connect(self._open_feedback_dialog)
+        self.credit_earn_button.clicked.connect(self._open_mission_dialog)
         self.save_json_button.clicked.connect(self._save_json)
         self.license_unlock_button.clicked.connect(self._activate_license)
         self.add_email_files_button.clicked.connect(self._select_email_files)
@@ -2273,6 +2287,15 @@ class MainWindow(QMainWindow):
     def _open_feedback_dialog(self) -> None:
         dialog = FeedbackDialog(self)
         dialog.exec()
+
+    def _open_mission_dialog(self) -> None:
+        license_code = load_saved_license_code()
+        if not license_code:
+            QMessageBox.warning(self, "크레딧 받기", "라이선스 등록 후 이용할 수 있는 기능입니다.")
+            return
+        dialog = MissionListDialog(license_code, self._refresh_credit_balance, self)
+        dialog.exec()
+        self._refresh_credit_balance()
 
     def _select_folder(self) -> None:
         selected_folder = QFileDialog.getExistingDirectory(

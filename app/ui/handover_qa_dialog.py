@@ -44,6 +44,10 @@ class HandoverQADialog(QDialog):
         self.autosave_timer.setInterval(2000)
         self.autosave_timer.timeout.connect(self._save_current_answer)
 
+        self.min_answer_notice_label = QLabel("1개 이상 작성하세요")
+        self.min_answer_notice_label.setObjectName("qaMinAnswerNotice")
+        self.min_answer_notice_label.setWordWrap(True)
+
         self.category_group = QButtonGroup(self)
         self.category_buttons: list[QRadioButton] = []
         self.category_labels: list[str] = []
@@ -89,6 +93,7 @@ class HandoverQADialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(18)
+        layout.addWidget(self.min_answer_notice_label)
         layout.addLayout(category_row)
         layout.addWidget(self.question_label)
         layout.addWidget(self.answer_input, stretch=1)

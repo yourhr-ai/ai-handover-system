@@ -30,8 +30,12 @@ LICENSE_SERVER_BASE_URL = os.environ.get(
 LICENSE_ACTIVATE_URL = f"{LICENSE_SERVER_BASE_URL}/api/license/activate"
 LICENSE_SERVER_TIMEOUT_SECONDS = 10
 # Portal page where a license key holder charges credits / data-processing
-# quota. Linked from the credit/quota-insufficient notices across the app.
-HANDOVER_PORTAL_URL = f"{LICENSE_SERVER_BASE_URL}/handover/portal"
+# quota. Linked from the credit/quota-insufficient notices in
+# chatbot_dialog.py and main_window.py (report save + package generation).
+# Intentionally NOT derived from LICENSE_SERVER_BASE_URL - that var gets
+# pointed at a local dev server for API testing, and this link must never
+# follow it there (it's shown to real users, not just developers).
+HANDOVER_PORTAL_URL = "https://review.yourhr.co.kr/handover/portal"
 
 
 def _parse_validity_code(validity_code: str) -> tuple[str, int] | None:

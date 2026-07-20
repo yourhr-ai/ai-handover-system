@@ -5,6 +5,7 @@ onefile / windowed(no console) build. Entry point is app/main.py, matching
 the project's real run command `python app/main.py` (see CLAUDE.md).
 """
 
+from PyInstaller.building.splash import Splash
 from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
@@ -35,12 +36,26 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Onefile exe launches take ~15s to unpack before the Qt main window can show
+# up (see app/main.py's single-instance check + MainWindow construction) -
+# without this, a user who thinks nothing happened will double-click again.
+# text_pos is intentionally omitted: the "불러오는 중..." caption is baked
+# into assets/splash.png itself, so no separate pyi_splash.update_text() area
+# is needed.
+splash = Splash(
+    "assets/splash.png",
+    binaries=a.binaries,
+    datas=a.datas,
+)
+
 exe = EXE(
     pyz,
     a.scripts,
+    splash,
     a.binaries,
     a.zipfiles,
     a.datas,
+    splash.binaries,
     [],
     name=APP_NAME,
     debug=False,

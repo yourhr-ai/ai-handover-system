@@ -1,0 +1,456 @@
+import re
+
+from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QPainter
+from PySide6.QtWidgets import (
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.license_credits import (
+    claim_link_mission,
+    get_missions,
+    submit_quiz_mission,
+    submit_review_mission,
+)
+
+_MISSION_TYPE_LABELS = {"link": "링크 열기", "quiz": "퀴즈 풀기", "review": "후기 작성"}
+
+# hr-ai-review의 src/lib/handover-reviews/spam-check.ts(checkReviewSpam)와
+# 동일한 규칙 - 서버가 최종 재검증하므로 완전히 동일할 필요는 없지만,
+# 서버에서 막힐 내용을 제출 전에 먼저 걸러 사용자 경험을 개선한다.
+_JAMO_ONLY_RUN = re.compile(r"[ㄱ-ㅎㅏ-ㅣ]{3,}")
+_SAME_SYMBOL_RUN = re.compile(r"([^\w\s]|_)\1{2,}")
+_LONG_WHITESPACE_RUN = re.compile(r"\s{5,}")
+_MIN_CONTENT_LENGTH = 20
+_DOMINANT_WORD_RATIO = 0.5
+
+
+def _validate_review_spam(content: str) -> str | None:
+    """검증을 통과하면 None, 아니면 사유 문자열을 반환한다."""
+    trimmed = content.strip()
+    if len(trimmed) < _MIN_CONTENT_LENGTH:
+        return f"후기 내용은 최소 {_MIN_CONTENT_LENGTH}자 이상 작성해주세요."
+    if _JAMO_ONLY_RUN.search(trimmed):
+        return "자음/모음만 3자 이상 연속으로 사용할 수 없습니다."
+    if _SAME_SYMBOL_RUN.search(trimmed):
+        return "같은 기호를 3회 이상 연속으로 사용할 수 없습니다."
+    if _LONG_WHITESPACE_RUN.search(trimmed):
+        return "공백을 5칸 이상 연속으로 사용할 수 없습니다."
+
+    tokens = trimmed.split()
+    if tokens:
+        counts: dict[str, int] = {}
+        for token in tokens:
+            key = token.lower()
+            counts[key] = counts.get(key, 0) + 1
+        if max(counts.values()) / len(tokens) >= _DOMINANT_WORD_RATIO:
+            return "같은 단어를 과도하게 반복할 수 없습니다."
+    return None
+
+
+class StarRatingWidget(QWidget):
+    """별 5개, 마우스 호버 시 왼쪽부터 미리보기로 채워지고 클릭 시 확정된다."""
+
+    ratingChanged = Signal(int)
+
+    _STAR_COUNT = 5
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._rating = 0
+        self._hover_index = -1
+        self.setMouseTracking(True)
+        self.setFixedHeight(30)
+        self.setMinimumWidth(150)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def rating(self) -> int:
+        return self._rating
+
+    def _index_at(self, x: float) -> int:
+        star_width = self.width() / self._STAR_COUNT
+        index = int(x // star_width) if star_width > 0 else 0
+        return max(0, min(self._STAR_COUNT - 1, index))
+
+    def mouseMoveEvent(self, event) -> None:
+        self._hover_index = self._index_at(event.position().x())
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        self._hover_index = -1
+        self.update()
+
+    def mousePressEvent(self, event) -> None:
+        self._rating = self._index_at(event.position().x()) + 1
+        self.ratingChanged.emit(self._rating)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        filled_count = (self._hover_index + 1) if self._hover_index >= 0 else self._rating
+        star_width = self.width() / self._STAR_COUNT
+        font = painter.font()
+        font.setPointSize(16)
+        painter.setFont(font)
+        for i in range(self._STAR_COUNT):
+            color = QColor("#F59E0B") if i < filled_count else QColor("#D1D5DB")
+            painter.setPen(color)
+            rect = QRectF(i * star_width, 0, star_width, self.height())
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "★")
+        painter.end()
+
+
+class MissionQuizDialog(QDialog):
+    def __init__(self, license_code: str, mission: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.mission = mission
+        self.setWindowTitle(mission.get("missionName") or "퀴즈")
+        self.setModal(True)
+        self.resize(420, 260)
+
+        question_label = QLabel(mission.get("missionContent") or "")
+        question_label.setWordWrap(True)
+
+        self.answer_input = QLineEdit()
+        self.answer_input.setPlaceholderText("정답을 입력하세요")
+
+        self.submit_button = QPushButton("제출")
+        self.cancel_button = QPushButton("취소")
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(self.cancel_button)
+        button_row.addWidget(self.submit_button)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(question_label)
+        layout.addWidget(self.answer_input)
+        layout.addStretch()
+        layout.addLayout(button_row)
+
+        self.submit_button.clicked.connect(self._submit)
+        self.cancel_button.clicked.connect(self.reject)
+        self.answer_input.returnPressed.connect(self._submit)
+
+    def _submit(self) -> None:
+        answer = self.answer_input.text().strip()
+        if not answer:
+            QMessageBox.warning(self, "퀴즈", "답을 입력해주세요.")
+            return
+
+        result = submit_quiz_mission(self.license_code, self.mission["id"], answer)
+        if result is None:
+            QMessageBox.warning(self, "퀴즈", "서버 연결에 실패했습니다. 인터넷 연결을 확인해주세요.")
+            return
+
+        status_code, body = result
+        if status_code == 200:
+            credits = body.get("creditsGranted", 0)
+            if body.get("granted"):
+                QMessageBox.information(self, "퀴즈", f"정답입니다! 크레딧이 지급되었습니다. (+{credits})")
+            else:
+                QMessageBox.information(self, "퀴즈", "정답입니다! 잠시 후 크레딧이 지급됩니다.")
+            self.accept()
+            return
+        if status_code == 400 and body.get("status") == "incorrect_answer":
+            QMessageBox.warning(self, "퀴즈", "정답이 아닙니다.")
+            return
+        if status_code == 409:
+            QMessageBox.information(self, "퀴즈", "이미 완료한 미션입니다.")
+            self.accept()
+            return
+        QMessageBox.warning(self, "퀴즈", body.get("message") or "요청을 처리하지 못했습니다.")
+
+
+class MissionReviewDialog(QDialog):
+    def __init__(self, license_code: str, product_id: str, mission: dict, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.product_id = product_id
+        self.mission = mission
+        self.setWindowTitle(mission.get("missionName") or "후기 작성")
+        self.setModal(True)
+        self.resize(440, 380)
+
+        notice = QLabel(
+            (mission.get("missionContent") or "실제 사용 경험을 20자 이상 자유롭게 남겨주세요.")
+            + "\n(20자 이상 작성해주세요)"
+        )
+        notice.setWordWrap(True)
+
+        self.content_input = QPlainTextEdit()
+        self.content_input.setPlaceholderText("예: 인수인계 문서를 정리하는 시간이 확 줄었어요.")
+        self.content_input.setMinimumHeight(160)
+
+        rating_label = QLabel("별점")
+        self.star_widget = StarRatingWidget()
+        self.star_widget.setAccessibleName("별점 선택")
+
+        self.submit_button = QPushButton("제출")
+        self.cancel_button = QPushButton("취소")
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(self.cancel_button)
+        button_row.addWidget(self.submit_button)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(notice)
+        layout.addWidget(self.content_input, 1)
+        layout.addWidget(rating_label)
+        layout.addWidget(self.star_widget)
+        layout.addLayout(button_row)
+
+        self.submit_button.clicked.connect(self._submit)
+        self.cancel_button.clicked.connect(self.reject)
+
+    def _submit(self) -> None:
+        content = self.content_input.toPlainText()
+        rating = self.star_widget.rating()
+        if rating < 1:
+            QMessageBox.warning(self, "후기 작성", "별점을 선택해주세요.")
+            return
+
+        spam_reason = _validate_review_spam(content)
+        if spam_reason:
+            QMessageBox.warning(self, "후기 작성", f"다시 작성해주세요.\n\n{spam_reason}")
+            return
+
+        if not self.product_id:
+            QMessageBox.warning(self, "후기 작성", "상품 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.")
+            return
+
+        result = submit_review_mission(self.license_code, self.product_id, content, rating)
+        if result is None:
+            QMessageBox.warning(self, "후기 작성", "서버 연결에 실패했습니다. 인터넷 연결을 확인해주세요.")
+            return
+
+        status_code, body = result
+        if status_code == 200:
+            completion = body.get("missionCompletion")
+            if isinstance(completion, dict) and completion.get("granted"):
+                credits = completion.get("creditsGranted", 0)
+                QMessageBox.information(self, "후기 작성", f"후기가 등록되었습니다. 크레딧이 지급되었습니다. (+{credits})")
+            elif isinstance(completion, dict):
+                QMessageBox.information(self, "후기 작성", "후기가 등록되었습니다. 잠시 후 크레딧이 지급됩니다.")
+            else:
+                QMessageBox.information(self, "후기 작성", "후기가 등록되었습니다. 감사합니다.")
+            self.accept()
+            return
+        if status_code == 400:
+            QMessageBox.warning(self, "후기 작성", body.get("message") or "다시 작성해주세요.")
+            return
+        QMessageBox.warning(self, "후기 작성", body.get("message") or "요청을 처리하지 못했습니다.")
+
+
+class MissionRowWidget(QFrame):
+    def __init__(self, license_code: str, product_id: str, mission: dict, on_credit_granted, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.product_id = product_id
+        self.mission = mission
+        self.on_credit_granted = on_credit_granted
+
+        self.setObjectName("missionRow")
+        self.setStyleSheet(
+            "QFrame#missionRow { background: #FAFAFA; border: 1px solid #E5E7EB; border-radius: 8px; }"
+        )
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+
+        self.info_label = QLabel()
+        self.info_label.setWordWrap(True)
+        layout.addWidget(self.info_label, 1)
+
+        self.action_button = QPushButton()
+        self.action_button.setFixedWidth(90)
+        self.complete_button = QPushButton("완료")
+        self.complete_button.setFixedWidth(70)
+        self.complete_button.setVisible(False)
+        layout.addWidget(self.action_button)
+        layout.addWidget(self.complete_button)
+
+        self.action_button.clicked.connect(self._handle_action_click)
+        self.complete_button.clicked.connect(self._handle_complete_click)
+
+        self._refresh_view()
+
+    def _refresh_view(self) -> None:
+        name = self.mission.get("missionName", "")
+        credits = self.mission.get("rewardCredits", 0)
+        self.info_label.setText(f"{name}\n+{credits} 크레딧")
+
+        mission_type = self.mission.get("missionType")
+        completed = bool(self.mission.get("completed"))
+
+        if completed:
+            self.action_button.setText("완료됨")
+            self.action_button.setEnabled(False)
+            self.complete_button.setVisible(False)
+            return
+
+        self.action_button.setText(_MISSION_TYPE_LABELS.get(mission_type, "참여하기"))
+        self.action_button.setEnabled(True)
+        self.complete_button.setVisible(False)
+
+    def _handle_action_click(self) -> None:
+        mission_type = self.mission.get("missionType")
+        if mission_type == "link":
+            self._handle_link_click()
+        elif mission_type == "quiz":
+            self._handle_quiz_click()
+        elif mission_type == "review":
+            self._handle_review_click()
+
+    def _handle_link_click(self) -> None:
+        url = self.mission.get("missionLink") or ""
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
+        self.action_button.setEnabled(False)
+        self.complete_button.setVisible(True)
+        self.complete_button.setEnabled(False)
+        QTimer.singleShot(3000, lambda: self.complete_button.setEnabled(True))
+
+    def _handle_complete_click(self) -> None:
+        result = claim_link_mission(self.license_code, self.mission["id"])
+        if result is None:
+            QMessageBox.warning(self, "크레딧 받기", "서버 연결에 실패했습니다. 인터넷 연결을 확인해주세요.")
+            return
+
+        status_code, body = result
+        if status_code == 200:
+            credits = body.get("creditsGranted", 0)
+            if body.get("granted"):
+                QMessageBox.information(self, "크레딧 받기", f"크레딧이 지급되었습니다. (+{credits})")
+            else:
+                QMessageBox.information(self, "크레딧 받기", "완료 처리되었습니다. 잠시 후 크레딧이 지급됩니다.")
+            self.mission["completed"] = True
+            self._refresh_view()
+            self.on_credit_granted()
+            return
+        if status_code == 409:
+            QMessageBox.information(self, "크레딧 받기", "이미 완료한 미션입니다.")
+            self.mission["completed"] = True
+            self._refresh_view()
+            return
+        QMessageBox.warning(self, "크레딧 받기", body.get("message") or "요청을 처리하지 못했습니다.")
+        self.action_button.setEnabled(True)
+
+    def _handle_quiz_click(self) -> None:
+        dialog = MissionQuizDialog(self.license_code, self.mission, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.mission["completed"] = True
+            self._refresh_view()
+            self.on_credit_granted()
+
+    def _handle_review_click(self) -> None:
+        dialog = MissionReviewDialog(self.license_code, self.product_id, self.mission, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.mission["completed"] = True
+            self._refresh_view()
+            self.on_credit_granted()
+
+
+class MissionListDialog(QDialog):
+    def __init__(self, license_code: str, on_credit_granted, parent=None) -> None:
+        super().__init__(parent)
+        self.license_code = license_code
+        self.on_credit_granted = on_credit_granted
+        self.product_id: str | None = None
+
+        self.setWindowTitle("크레딧 받기")
+        self.setModal(True)
+        self.resize(460, 440)
+
+        self.info_label = QLabel("미션을 완료하면 크레딧을 받을 수 있어요.")
+        self.info_label.setWordWrap(True)
+
+        # 각 미션 행은 라벨+버튼을 함께 담은 커스텀 위젯이라, QListWidget의
+        # setItemWidget()으로 넣으면 접근성 트리(스크린리더/UI 자동화)에서
+        # 그 안의 버튼들이 보이지 않는다. 일반 QVBoxLayout+QScrollArea로
+        # 바꿔 각 행의 버튼이 정상적으로 접근 가능하도록 한다.
+        self.rows_container = QWidget()
+        self.rows_layout = QVBoxLayout(self.rows_container)
+        self.rows_layout.setContentsMargins(0, 0, 0, 0)
+        self.rows_layout.setSpacing(6)
+        self.rows_layout.addStretch()
+
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setWidget(self.rows_container)
+
+        self.close_button = QPushButton("닫기")
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(self.close_button)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.info_label)
+        layout.addWidget(self.scroll_area, 1)
+        layout.addLayout(button_row)
+
+        self.close_button.clicked.connect(self.accept)
+
+        self._load_missions()
+
+    def _clear_rows(self) -> None:
+        while self.rows_layout.count() > 1:
+            item = self.rows_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _insert_row(self, widget: QWidget) -> None:
+        self.rows_layout.insertWidget(self.rows_layout.count() - 1, widget)
+
+    def _show_placeholder(self, text: str) -> None:
+        self._clear_rows()
+        placeholder = QLabel(text)
+        placeholder.setWordWrap(True)
+        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._insert_row(placeholder)
+
+    def _load_missions(self) -> None:
+        self._clear_rows()
+        result = get_missions(self.license_code)
+        if result is None:
+            self._show_placeholder("서버 연결에 실패했습니다. 인터넷 연결을 확인해주세요.")
+            return
+
+        status_code, body = result
+        if status_code != 200 or "missions" not in body:
+            self._show_placeholder(body.get("message") or "미션 목록을 불러오지 못했습니다.")
+            return
+
+        self.product_id = body.get("productId")
+        missions = body.get("missions") or []
+        if not missions:
+            self._show_placeholder("현재 진행 가능한 미션이 없습니다.")
+            return
+
+        for mission in missions:
+            self._add_mission_item(mission)
+
+    def _add_mission_item(self, mission: dict) -> None:
+        row_widget = MissionRowWidget(
+            self.license_code, self.product_id, mission, self._handle_credit_granted, self
+        )
+        self._insert_row(row_widget)
+
+    def _handle_credit_granted(self) -> None:
+        self.on_credit_granted()

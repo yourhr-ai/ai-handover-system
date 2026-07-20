@@ -407,3 +407,17 @@ QPushButton#licenseUnlockButton[licenseState="unregistered"]:disabled {
     background: transparent; /* 메모 항목 라벨 배경 - transparent는 배경을 투명하게 함 */
     padding: 4px 8px; /* 메모 항목 라벨 안쪽 여백 - 숫자가 크면 항목 내부 공간이 넓어짐 */
 }
+
+/* ============================================
+   알려주세요 팝업 - 안내 문구
+   ============================================ */
+/* 알려주세요 팝업 최상단에 "1개 이상 작성하세요"를 보여주는 안내
+   문구입니다. font-size는 지정하지 않아 팝업 안 카테고리 라벨/답변
+   입력란과 동일한 기본 글자 크기를 그대로 씁니다. background-color=
+   배경색, padding=위아래(12px)/좌우 여백입니다. */
+#qaMinAnswerNotice {
+    background-color: #EDE7FE; /* 안내 문구 배경색 - 연한 보라색 하이라이트, 이 색을 바꾸면 안내 문구 배경이 바뀜 */
+    color: #1A1A1A; /* 안내 문구 글자색 - 연한 보라 배경 위에서 잘 보이도록 어두운 글자색 사용 */
+    padding: 12px 14px; /* 안내 문구 안쪽 여백 - 위아래 12px 고정, 좌우 14px */
+    border-radius: 8px; /* 안내 문구 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
+}
