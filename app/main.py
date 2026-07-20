@@ -1,3 +1,4 @@
+import logging
 import sys
 import multiprocessing
 from pathlib import Path
@@ -10,7 +11,15 @@ from PySide6.QtWidgets import QApplication
 from app.ui.main_window import MainWindow
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+logger = logging.getLogger(__name__)
+
+if getattr(sys, "frozen", False):
+    # PyInstaller onefile: __file__ resolves to a flattened path inside the
+    # _MEIPASS extraction dir, so parent.parent no longer lands on the repo
+    # root - style.qss is extracted directly under _MEIPASS instead.
+    PROJECT_ROOT = Path(sys._MEIPASS)
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STYLESHEET_PATH = PROJECT_ROOT / "style.qss"
 
 
@@ -18,6 +27,7 @@ def _load_stylesheet(stylesheet_path: Path = STYLESHEET_PATH) -> str:
     try:
         return stylesheet_path.read_text(encoding="utf-8")
     except OSError:
+        logger.warning("스타일시트를 찾을 수 없습니다: %s", stylesheet_path)
         return ""
 
 
