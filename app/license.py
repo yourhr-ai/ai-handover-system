@@ -16,8 +16,17 @@ logger = logging.getLogger(__name__)
 
 SECRET_KEY = "7a9df181d69b561f7486ac07cf51d3613bc72db5a91e202d3f26ca8c2e6c4fd8"
 
-LICENSE_FILE_PATH = Path("config") / "license.json"
-LAST_SEEN_DATE_FILE_PATH = Path("config") / "last_seen_date.dat"
+# 라이선스 관련 파일은 실행 위치(CWD)와 무관하게 항상 같은 곳에 저장/로드
+# 되어야 한다. 예전에는 Path("config")/... 상대경로를 써서 exe를 실행한
+# 폴더(바탕화면/다운로드 등)마다 저장 위치가 달라졌고, 그 결과 "등록했는데
+# 다시 등록하라고 뜨는" 문제가 생겼다. Windows 관례대로 사용자별 표준 위치
+# (%APPDATA%\인수인계10분)에 고정한다.
+_APP_DATA_DIR = Path(
+    os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")
+) / "인수인계10분"
+
+LICENSE_FILE_PATH = _APP_DATA_DIR / "license.json"
+LAST_SEEN_DATE_FILE_PATH = _APP_DATA_DIR / "last_seen_date.dat"
 CLOCK_SKEW_WARNING_DAYS = 1
 TRUSTED_TIME_CHECK_URL = "https://www.google.com"
 TRUSTED_TIME_CHECK_TIMEOUT_SECONDS = 3
