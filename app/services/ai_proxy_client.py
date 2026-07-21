@@ -3,7 +3,7 @@
 exe는 더 이상 OpenAI를 직접 호출하지 않는다. 인수인계서 생성/챗봇 질문은
 POST {LICENSE_SERVER_BASE_URL}/api/handover/ai/chat 을, 임베딩(패키지 생성,
 챗봇 질문 임베딩)은 POST {LICENSE_SERVER_BASE_URL}/api/handover/ai/embeddings
-를 경유한다. 서버가 라이선스 코드로 상품을 찾아 그 상품에 등록된 GPT 키로
+를 경유한다. 서버가 라이선스 키로 상품을 찾아 그 상품에 등록된 GPT 키로
 실제 OpenAI를 호출하고, chat 엔드포인트는 크레딧 reserve/finalize도 내부적으로
 처리한다.
 """

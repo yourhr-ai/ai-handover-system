@@ -102,8 +102,8 @@ _LICENSE_LOCK_DIALOG_TEXT = {
         "아직 라이선스가 등록되지 않았습니다.<br>라이선스 키를 입력해 주세요.",
     ),
     "invalid_format": (
-        "라이선스 코드 확인",
-        "라이선스 코드 형식이 올바르지 않습니다.<br>담당 컨설턴트에게 문의해 주세요.",
+        "라이선스 키 확인",
+        "라이선스 키 형식이 올바르지 않습니다.<br>담당 컨설턴트에게 문의해 주세요.",
     ),
     "no_internet": (
         "인터넷 연결 필요",
@@ -115,11 +115,11 @@ _LICENSE_LOCK_DIALOG_TEXT = {
     ),
     "invalid_code": (
         "라이선스 등록",
-        "입력하신 라이선스 코드를 찾을 수 없습니다.<br>코드를 다시 확인해 주세요.",
+        "입력하신 라이선스 키를 찾을 수 없습니다.<br>키를 다시 확인해 주세요.",
     ),
     "not_found": (
         "라이선스 등록",
-        "입력하신 라이선스 코드를 찾을 수 없습니다.<br>코드를 다시 확인해 주세요.",
+        "입력하신 라이선스 키를 찾을 수 없습니다.<br>키를 다시 확인해 주세요.",
     ),
     "server_error": (
         "서버 연결 실패",
@@ -148,11 +148,11 @@ _LICENSE_LOCK_DIALOG_TEXT = {
 }
 _LICENSE_LOCK_LABEL_TEXT = {
     "not_registered": "아직 라이선스가 등록되지 않았습니다",
-    "invalid_format": "라이선스 코드 형식이 올바르지 않습니다",
+    "invalid_format": "라이선스 키 형식이 올바르지 않습니다",
     "no_internet": "인터넷 연결이 필요합니다",
     "device_id_failed": "PC 식별에 실패했습니다",
-    "invalid_code": "입력하신 라이선스 코드를 찾을 수 없습니다",
-    "not_found": "입력하신 라이선스 코드를 찾을 수 없습니다",
+    "invalid_code": "입력하신 라이선스 키를 찾을 수 없습니다",
+    "not_found": "입력하신 라이선스 키를 찾을 수 없습니다",
     "server_error": "서버 연결에 실패했습니다",
     "other_device": "이 라이선스는 다른 PC에서 사용 중입니다",
     "license_terminated": "라이선스가 종료되었습니다",
@@ -165,6 +165,12 @@ MAIN_MARGIN = 20
 MAIN_SECTION_SPACING = 20
 MODE_SECTION_SPACING = 10
 MODE_CARD_SPACING = 12
+# 모드 카드 설명이 1줄에서 2줄로 늘어난 만큼, 모드 영역과 "2. 분석 대상"
+# 사이의 여백(원래 MAIN_SECTION_SPACING=20)을 줄여 창 전체 높이를 그대로
+# 유지한다.
+MODE_TO_TARGET_SPACING = 8
+MODE_CARD_ACCENT_COLOR = "#7C3AED"  # 모드 설명 1번째 줄의 연한 보라색(앱 전반의 강조 보라색과 동일)
+MODE_CARD_BODY_COLOR = "#1A1A1A"  # 모드 설명 2번째 줄의 검은색(모드 제목과 동일한 색)
 ACTION_BUTTON_SPACING = 8
 LIST_HEIGHT = 90
 ACTION_SEPARATOR_HEIGHT = 1
@@ -1505,9 +1511,11 @@ class MainWindow(QMainWindow):
         self.edit_memo_button.setEnabled(True)
         self.create_rag_package_button = QPushButton("인수인계패키지 생성")
         _set_button_role(self.create_rag_package_button, "secondary")
+        self.create_rag_package_button.setObjectName("createRagPackageButton")
         self.create_rag_package_button.setEnabled(True)
         self.chatbot_button = QPushButton("물어보기(챗봇)")
         _set_button_role(self.chatbot_button, "secondary")
+        self.chatbot_button.setObjectName("chatbotButton")
         self.credit_earn_button = QPushButton("🎁 크레딧 받기")
         self.credit_earn_button.setObjectName("creditEarnButton")
         self.credit_earn_button.setFixedHeight(28)
@@ -1533,6 +1541,7 @@ class MainWindow(QMainWindow):
         self.save_json_button = QPushButton("JSON 저장")
         _set_button_role(self.save_json_button, "secondary")
 
+        self._mission_dialog_loading = False
         self.selected_analysis_mode = "basic"
         self.mode_cards: dict[str, tuple[QFrame, QLabel]] = {}
         self.license_activated, self._license_lock_reason = (
@@ -1618,7 +1627,8 @@ class MainWindow(QMainWindow):
         self,
         mode_key: str,
         title: str,
-        description: str,
+        accent_line: str,
+        body_line: str,
     ) -> QFrame:
         card = QFrame()
         card.setObjectName("modeCard")
@@ -1641,8 +1651,15 @@ class MainWindow(QMainWindow):
         text_layout.setSpacing(2)
         title_label = QLabel(title)
         title_label.setObjectName("modeCardTitle")
-        description_label = QLabel(description)
+        description_label = QLabel()
         description_label.setObjectName("modeCardDescription")
+        # 폰트 크기는 #modeCardDescription 스타일시트 값을 그대로 물려받고,
+        # 줄마다 색/굵기만 span으로 다르게 입힌다(크기는 절대 지정하지 않음).
+        description_label.setText(
+            f'<span style="color:{MODE_CARD_ACCENT_COLOR}; font-weight:700;">{accent_line}</span>'
+            f'<br><span style="color:{MODE_CARD_BODY_COLOR}; font-weight:400;">{body_line}</span>'
+        )
+        description_label.setTextFormat(Qt.TextFormat.RichText)
         description_label.setWordWrap(False)
         text_layout.addWidget(title_label)
         text_layout.addWidget(description_label)
@@ -1787,7 +1804,7 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(
             self,
             "분석 대상 선택",
-            "AI 모드에서 사용 가능합니다",
+            "완성 모드에서 사용 가능합니다",
         )
         self.analysis_target_tabs.setCurrentIndex(self._folder_tab_index)
 
@@ -1825,28 +1842,34 @@ class MainWindow(QMainWindow):
         mode_title_row.addWidget(mode_title)
         mode_title_row.addStretch()
         mode_section_layout.addLayout(mode_title_row)
-        # 기본모드/AI모드 카드와 라이선스 버튼을 한 줄에 배치한다. 스트레치 비율
+        # 기본모드/완성모드 카드와 라이선스 버튼을 한 줄에 배치한다. 스트레치 비율
         # 88:88:6:18은 각각 카드 두 개의 너비, 그 사이 여백, 라이선스 버튼의
         # 상대적 너비를 그대로 나타낸다(정확히 100을 합할 필요는 없다 - Qt의
         # 스트레치 계수는 절대 백분율이 아니라 남는 공간을 나누는 상대 비율이다).
         mode_layout = QHBoxLayout()
         mode_layout.setSpacing(MODE_CARD_SPACING)
-        mode_layout.addWidget(
-            self._create_mode_card(
-                "basic",
-                "기본 모드",
-                "문서, 파일 분석 → 업무 정리",
-            ),
-            88,
+        basic_mode_card = self._create_mode_card(
+            "basic",
+            "기본 모드",
+            "한번 구매, 평생 무료",
+            "문서, 파일 분석 → 업무 정리",
         )
-        mode_layout.addWidget(
-            self._create_mode_card(
-                "ai",
-                "AI 모드",
-                "기본 모드 + GPT 분석",
-            ),
-            88,
+        ai_mode_card = self._create_mode_card(
+            "ai",
+            "완성 모드",
+            "기본 모드 + 96% 완성",
+            "문서, 파일 분석 → 자동 작성",
         )
+        # 두 카드의 설명 텍스트 길이가 서로 달라 sizeHint가 조금씩 달라지면,
+        # 스트레치 계수가 88:88로 같아도 그 sizeHint 차이가 최종 렌더링 폭에
+        # 그대로 남는다(스트레치는 sizeHint 위에 남는 여유 공간만 나누기
+        # 때문). 두 sizeHint 중 더 큰 값을 공통 최소 폭으로 강제해서, 텍스트
+        # 길이가 앞으로 바뀌어도 두 카드 폭이 항상 정확히 같게 만든다.
+        equal_card_width = max(basic_mode_card.sizeHint().width(), ai_mode_card.sizeHint().width())
+        basic_mode_card.setMinimumWidth(equal_card_width)
+        ai_mode_card.setMinimumWidth(equal_card_width)
+        mode_layout.addWidget(basic_mode_card, 88)
+        mode_layout.addWidget(ai_mode_card, 88)
         mode_layout.addStretch(6)
         mode_layout.addWidget(self.license_unlock_button, 18)
         mode_section_layout.addLayout(mode_layout)
@@ -1965,7 +1988,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.credit_balance_banner)
         main_layout.addSpacing(MAIN_SECTION_SPACING)
         main_layout.addLayout(mode_section_layout)
-        main_layout.addSpacing(MAIN_SECTION_SPACING)
+        main_layout.addSpacing(MODE_TO_TARGET_SPACING)
         main_layout.addWidget(target_title)
         main_layout.addSpacing(MODE_SECTION_SPACING)
         main_layout.addWidget(analysis_target_frame)
@@ -2092,10 +2115,10 @@ class MainWindow(QMainWindow):
         dialog = QInputDialog(self)
         dialog.setWindowTitle("라이선스 등록")
         dialog.setLabelText(
-            "현재 등록된 라이선스가 있습니다. 변경하려면 새 라이선스 코드를\n"
+            "현재 등록된 라이선스가 있습니다. 변경하려면 새 라이선스 키를\n"
             "입력하고 등록을 눌러주세요."
             if saved_license_code
-            else "등록된 라이선스가 없습니다. 라이선스 코드를 입력해 주세요."
+            else "등록된 라이선스가 없습니다. 라이선스 키를 입력해 주세요."
         )
         dialog.setTextValue(masked_license_code)
         dialog.setOkButtonText("등록")
@@ -2114,7 +2137,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "라이선스 등록",
-                "유효하지 않거나 만료된 라이선스 코드입니다.",
+                "유효하지 않거나 만료된 라이선스 키입니다.",
             )
             return
 
@@ -2145,7 +2168,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     "라이선스 등록",
-                    "유효하지 않거나 만료된 라이선스 코드입니다.",
+                    "유효하지 않거나 만료된 라이선스 키입니다.",
                 )
             return
 
@@ -2175,7 +2198,7 @@ class MainWindow(QMainWindow):
                 self,
                 "라이선스 등록",
                 message
-                or "입력하신 라이선스 코드를 찾을 수 없습니다. 코드를 다시 확인해 주세요.",
+                or "입력하신 라이선스 키를 찾을 수 없습니다. 키를 다시 확인해 주세요.",
             )
             return
         QMessageBox.warning(
@@ -2289,11 +2312,27 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _open_mission_dialog(self) -> None:
+        # setEnabled(False)만으로도 클릭이 막히지만, 만에 하나를 대비해
+        # 요청 진행 중 플래그로도 한 번 더 중복 진입을 막는다.
+        if self._mission_dialog_loading:
+            return
         license_code = load_saved_license_code()
         if not license_code:
             QMessageBox.warning(self, "크레딧 받기", "라이선스 등록 후 이용할 수 있는 기능입니다.")
             return
-        dialog = MissionListDialog(license_code, self._refresh_credit_balance, self)
+
+        self._mission_dialog_loading = True
+        original_text = self.credit_earn_button.text()
+        self.credit_earn_button.setText("불러오는 중...")
+        self.credit_earn_button.setEnabled(False)
+        QApplication.processEvents()
+        try:
+            dialog = MissionListDialog(license_code, self._refresh_credit_balance, self)
+        finally:
+            self.credit_earn_button.setText(original_text)
+            self.credit_earn_button.setEnabled(True)
+            self._mission_dialog_loading = False
+
         dialog.exec()
         self._refresh_credit_balance()
 
@@ -3983,7 +4022,7 @@ class MainWindow(QMainWindow):
             " 계속 진행하시겠습니까?"
         )
         save_as_ai_button = message_box.addButton(
-            "AI 모드로 저장",
+            "완성 모드로 저장",
             QMessageBox.ButtonRole.AcceptRole,
         )
         save_as_basic_button = message_box.addButton(

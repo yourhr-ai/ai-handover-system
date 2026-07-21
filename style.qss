@@ -81,6 +81,24 @@ QPushButton#editMemoButton:disabled {
     color: #8A8A8A; /* 비활성 상태 글자색 */
 }
 
+/* 메인 화면 하단의 [인수인계패키지 생성]/[물어보기(챗봇)] 버튼 - 배경색/
+   글자색 등은 위 보조 버튼(secondary) 스타일을 그대로 쓰고, 테두리만
+   [인수인계서 작성](#editMemoButton)과 정확히 동일한 값으로 맞춘다. */
+QPushButton#createRagPackageButton,
+QPushButton#chatbotButton {
+    border: 1.5px solid #C4B5FD; /* #editMemoButton과 동일한 옅은 보라색 테두리 */
+}
+
+QPushButton#createRagPackageButton:hover,
+QPushButton#chatbotButton:hover {
+    border-color: #A78BFA; /* #editMemoButton:hover와 동일 */
+}
+
+QPushButton#createRagPackageButton:disabled,
+QPushButton#chatbotButton:disabled {
+    border-color: #E4DBFC; /* #editMemoButton:disabled와 동일 */
+}
+
 /* 메인 화면의 [라이선스] 버튼 - 아직 라이선스를 등록하지 않은 상태에서만
    연한 보라색으로 강조합니다. 등록이 완료되면 이 규칙은 적용되지 않고
    위의 기본 보조 버튼(회색) 스타일이 그대로 유지됩니다. */
@@ -144,30 +162,33 @@ QPushButton#licenseUnlockButton[licenseState="unregistered"]:disabled {
    메인 화면 - 모드 카드
    ============================================ */
 /* 메인 화면 - 모드 카드 */
-/* 기본 모드/AI 모드 선택 카드의 기본 상태입니다. border=테두리, border-radius=모서리 둥근 정도, background-color=배경색입니다. */
+/* 기본 모드/완성 모드 선택 카드의 기본 상태입니다. border=테두리, border-radius=모서리 둥근 정도, background-color=배경색입니다. */
 #modeCard {
     border: 1px solid #D0D0D0; /* 카드 테두리 두께/색상 - 이 색을 바꾸면 선택 전 카드 테두리가 바뀜 */
     border-radius: 10px; /* 카드 모서리 둥근 정도 - 숫자가 크면 더 둥글어짐 */
     background-color: #ffffff; /* 카드 배경색 - 이 색을 바꾸면 선택 전 카드 배경이 바뀜 */
 }
 
-/* 기본 모드/AI 모드 카드가 선택됐을 때입니다. 파란 테두리와 연한 배경으로 강조됩니다. */
+/* 기본 모드/완성 모드 카드가 선택됐을 때입니다. 파란 테두리와 연한 배경으로 강조됩니다. */
 #modeCard[selected="true"] {
     border: 1.5px solid #5685eb; /* 선택된 카드 테두리 두께/색상 - 이 색을 바꾸면 선택 강조색이 바뀜 */
     background-color: #EFF6FF; /* 선택된 카드 배경색 - 이 색을 바꾸면 선택된 카드 배경이 바뀜 */
 }
 
-/* 모드 카드 안의 제목(기본 모드, AI 모드)입니다. font-size=글자 크기, color=글자색입니다. */
+/* 모드 카드 안의 제목(기본 모드, 완성 모드)입니다. font-size=글자 크기, color=글자색입니다. */
 #modeCardTitle {
-    font-size: 14px; /* 모드명 글자 크기 - 숫자가 크면 기본 모드/AI 모드 글자가 커짐 */
+    font-size: 14px; /* 모드명 글자 크기 - 숫자가 크면 기본 모드/완성 모드 글자가 커짐 */
     font-weight: bold; /* 모드명 글자 굵기 - bold는 굵게 표시 */
-    color: #1A1A1A; /* 모드명 글자색 - 이 색을 바꾸면 기본 모드/AI 모드 글자색이 바뀜 */
+    color: #1A1A1A; /* 모드명 글자색 - 이 색을 바꾸면 기본 모드/완성 모드 글자색이 바뀜 */
 }
 
-/* 모드 카드 안의 설명 문구입니다. 흐린 회색의 작은 설명 글자입니다. */
+/* 모드 카드 안의 2줄 설명 문구입니다. 1번째 줄(보라/볼드)과 2번째 줄(검정)의
+   색/굵기는 main_window.py의 _create_mode_card()에서 각 줄에 직접 입히므로,
+   아래 color는 실제로는 쓰이지 않는 기본값입니다. font-size만 두 줄 모두에
+   적용됩니다. */
 #modeCardDescription {
-    font-size: 11px; /* 모드 설명 글자 크기 - 숫자가 크면 설명 문구가 커짐 */
-    color: #9CA3AF; /* 모드 설명 글자색 - 이 색을 바꾸면 카드 설명 문구 색이 바뀜 */
+    font-size: 11px; /* 모드 설명 글자 크기 - 숫자가 크면 설명 문구(1,2번째 줄 모두)가 커짐 */
+    color: #9CA3AF; /* 사용되지 않는 기본값 - 실제 색은 main_window.py에서 줄마다 지정됨 */
 }
 
 /* 선택된 모드 카드 왼쪽의 ● 기호입니다. ※ 라디오 버튼 대신 쓰는 텍스트 기호라 구조는 건드리지 마세요. */

@@ -170,7 +170,7 @@ def verify_license_with_server(license_code: str, device_id: str) -> tuple[str, 
     - "already_activated_same_device": 이미 이 기기에서 활성화되어 있음
     - "activated_on_other_device": 다른 기기에서 이미 활성화됨
     - "license_terminated": 관리자가 지정한 종료일이 지남
-    - "not_found": 서버에 존재하지 않는 라이선스 코드
+    - "not_found": 서버에 존재하지 않는 라이선스 키
     - "network_error": 서버 요청 자체가 실패함 (타임아웃/네트워크 오류/이상 응답)
     """
     payload = json.dumps({"license_code": license_code, "device_id": device_id}).encode("utf-8")

@@ -1,8 +1,10 @@
+import math
 import re
 
-from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QPainter
+from PySide6.QtCore import QPointF, QTimer, QUrl, Signal, Qt
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -58,28 +60,80 @@ def _validate_review_spam(content: str) -> str | None:
     return None
 
 
+def _apply_content_based_height(dialog: QDialog, width: int, min_height: int, max_height: int) -> None:
+    """다이얼로그의 폭은 고정하고, 실제 내용(레이아웃 sizeHint)에 맞춰 높이만
+    동적으로 계산해 적용한다. 내용이 적으면 작아지고 많으면 커지되,
+    min_height/max_height 범위를 벗어나지 않게 clamp한다."""
+    layout = dialog.layout()
+    if layout is None:
+        return
+    # 일반 sizeHint()는 폭 제약과 무관한 "선호 크기"라 wordWrap 라벨처럼
+    # 폭에 따라 줄 수가 바뀌는 위젯의 실제 필요 높이를 반영하지 못한다.
+    # heightForWidth(width)를 써야 그 폭에서 줄바꿈된 실제 높이를 얻는다.
+    if layout.hasHeightForWidth():
+        content_height = layout.heightForWidth(width)
+    else:
+        content_height = layout.sizeHint().height()
+    target_height = max(min_height, min(content_height, max_height))
+    dialog.resize(width, target_height)
+
+
+def _build_star_path(center: QPointF, outer_radius: float, inner_radius: float) -> QPainterPath:
+    """5각 별 모양의 QPainterPath를 만든다(각진 유니코드 글리프 대신 직접
+    그려서 채움/테두리를 독립적으로 제어할 수 있게 한다)."""
+    path = QPainterPath()
+    points: list[QPointF] = []
+    for i in range(10):
+        angle = math.pi / 2 + i * math.pi / 5
+        radius = outer_radius if i % 2 == 0 else inner_radius
+        points.append(QPointF(center.x() + radius * math.cos(angle), center.y() - radius * math.sin(angle)))
+    path.moveTo(points[0])
+    for point in points[1:]:
+        path.lineTo(point)
+    path.closeSubpath()
+    return path
+
+
 class StarRatingWidget(QWidget):
-    """별 5개, 마우스 호버 시 왼쪽부터 미리보기로 채워지고 클릭 시 확정된다."""
+    """별 5개, 마우스 호버 시 왼쪽부터 미리보기로 채워지고 클릭 시 확정된다.
+
+    채워진 별은 노란색(#F59E0B)으로 꽉 채우고, 빈 별은 옅은 회색(#D1D5DB)
+    테두리만 그려서 채움/빈 상태의 대비를 뚜렷하게 한다."""
 
     ratingChanged = Signal(int)
 
     _STAR_COUNT = 5
+    _STAR_GAP = 10
+    _FILLED_COLOR = QColor("#F59E0B")
+    _EMPTY_OUTLINE_COLOR = QColor("#D1D5DB")
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._rating = 0
         self._hover_index = -1
         self.setMouseTracking(True)
-        self.setFixedHeight(30)
-        self.setMinimumWidth(150)
+        # 기존 대비 2배 크기(높이 30 -> 60, 최소폭 150 -> 300 ≈ 별 지름 48px * 5 + 간격 10px * 4).
+        self.setFixedHeight(60)
+        self.setMinimumWidth(300)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def rating(self) -> int:
         return self._rating
 
+    def _slot_width(self) -> float:
+        available = self.width() - self._STAR_GAP * (self._STAR_COUNT - 1)
+        return available / self._STAR_COUNT if self._STAR_COUNT else 0
+
+    def _star_center_x(self, index: int) -> float:
+        slot_width = self._slot_width()
+        return index * (slot_width + self._STAR_GAP) + slot_width / 2
+
     def _index_at(self, x: float) -> int:
-        star_width = self.width() / self._STAR_COUNT
-        index = int(x // star_width) if star_width > 0 else 0
+        slot_width = self._slot_width()
+        if slot_width <= 0:
+            return 0
+        step = slot_width + self._STAR_GAP
+        index = int(x // step)
         return max(0, min(self._STAR_COUNT - 1, index))
 
     def mouseMoveEvent(self, event) -> None:
@@ -99,26 +153,37 @@ class StarRatingWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         filled_count = (self._hover_index + 1) if self._hover_index >= 0 else self._rating
-        star_width = self.width() / self._STAR_COUNT
-        font = painter.font()
-        font.setPointSize(16)
-        painter.setFont(font)
+        slot_width = self._slot_width()
+        outer_radius = min(slot_width, self.height()) / 2 * 0.9
+        inner_radius = outer_radius * 0.5
+        center_y = self.height() / 2
         for i in range(self._STAR_COUNT):
-            color = QColor("#F59E0B") if i < filled_count else QColor("#D1D5DB")
-            painter.setPen(color)
-            rect = QRectF(i * star_width, 0, star_width, self.height())
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "★")
+            center = QPointF(self._star_center_x(i), center_y)
+            path = _build_star_path(center, outer_radius, inner_radius)
+            if i < filled_count:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(self._FILLED_COLOR)
+            else:
+                painter.setPen(QPen(self._EMPTY_OUTLINE_COLOR, 1.5))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
         painter.end()
 
 
 class MissionQuizDialog(QDialog):
+    _MIN_HEIGHT = 180
+    _MAX_HEIGHT = 560
+    _WIDTH = 420
+    _SUBMIT_LABEL = "제출"
+    _CHECKING_LABEL = "확인 중입니다"
+
     def __init__(self, license_code: str, mission: dict, parent=None) -> None:
         super().__init__(parent)
         self.license_code = license_code
         self.mission = mission
         self.setWindowTitle(mission.get("missionName") or "퀴즈")
         self.setModal(True)
-        self.resize(420, 260)
+        self._submitting = False
 
         question_label = QLabel(mission.get("missionContent") or "")
         question_label.setWordWrap(True)
@@ -126,7 +191,7 @@ class MissionQuizDialog(QDialog):
         self.answer_input = QLineEdit()
         self.answer_input.setPlaceholderText("정답을 입력하세요")
 
-        self.submit_button = QPushButton("제출")
+        self.submit_button = QPushButton(self._SUBMIT_LABEL)
         self.cancel_button = QPushButton("취소")
 
         button_row = QHBoxLayout()
@@ -144,13 +209,28 @@ class MissionQuizDialog(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         self.answer_input.returnPressed.connect(self._submit)
 
+        _apply_content_based_height(self, self._WIDTH, self._MIN_HEIGHT, self._MAX_HEIGHT)
+
     def _submit(self) -> None:
+        if self._submitting:
+            return
+
         answer = self.answer_input.text().strip()
         if not answer:
             QMessageBox.warning(self, "퀴즈", "답을 입력해주세요.")
             return
 
-        result = submit_quiz_mission(self.license_code, self.mission["id"], answer)
+        self._submitting = True
+        self.submit_button.setText(self._CHECKING_LABEL)
+        self.submit_button.setEnabled(False)
+        QApplication.processEvents()
+        try:
+            result = submit_quiz_mission(self.license_code, self.mission["id"], answer)
+        finally:
+            self.submit_button.setText(self._SUBMIT_LABEL)
+            self.submit_button.setEnabled(True)
+            self._submitting = False
+
         if result is None:
             QMessageBox.warning(self, "퀴즈", "서버 연결에 실패했습니다. 인터넷 연결을 확인해주세요.")
             return
@@ -174,7 +254,19 @@ class MissionQuizDialog(QDialog):
         QMessageBox.warning(self, "퀴즈", body.get("message") or "요청을 처리하지 못했습니다.")
 
 
+_REVIEW_EXAMPLE_TEXT = (
+    "퇴사자 인수인계 자료가 폴더 여기저기 흩어져 있어서 늘 걱정이었는데, "
+    "폴더 하나만 선택하니 알아서 다 정리해줬어요. 인계 문서 만드는 데 하루 종일 걸리던 게 "
+    "10분으로 줄었습니다. 다음 퇴사자 나올 때도 이거 하나면 될 것 같아요."
+)
+
+
 class MissionReviewDialog(QDialog):
+    _MIN_HEIGHT = 320
+    _MAX_HEIGHT = 620
+    _WIDTH = 440
+    _STAR_TO_INPUT_GAP = 20
+
     def __init__(self, license_code: str, product_id: str, mission: dict, parent=None) -> None:
         super().__init__(parent)
         self.license_code = license_code
@@ -182,7 +274,6 @@ class MissionReviewDialog(QDialog):
         self.mission = mission
         self.setWindowTitle(mission.get("missionName") or "후기 작성")
         self.setModal(True)
-        self.resize(440, 380)
 
         notice = QLabel(
             (mission.get("missionContent") or "실제 사용 경험을 20자 이상 자유롭게 남겨주세요.")
@@ -191,10 +282,10 @@ class MissionReviewDialog(QDialog):
         notice.setWordWrap(True)
 
         self.content_input = QPlainTextEdit()
-        self.content_input.setPlaceholderText("예: 인수인계 문서를 정리하는 시간이 확 줄었어요.")
+        self.content_input.setPlaceholderText(f"예: {_REVIEW_EXAMPLE_TEXT}")
         self.content_input.setMinimumHeight(160)
 
-        rating_label = QLabel("별점")
+        # "별점" 라벨 없이 별 아이콘만으로 충분히 인지 가능하도록 라벨을 두지 않는다.
         self.star_widget = StarRatingWidget()
         self.star_widget.setAccessibleName("별점 선택")
 
@@ -209,12 +300,17 @@ class MissionReviewDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(notice)
         layout.addWidget(self.content_input, 1)
-        layout.addWidget(rating_label)
+        # 레이아웃이 위젯 사이마다 자체 spacing()을 이미 넣어주므로, 그만큼을
+        # 뺀 나머지만 addSpacing으로 더해서 별점-입력란 사이 총 여백이
+        # 정확히 _STAR_TO_INPUT_GAP(20)px가 되게 한다.
+        layout.addSpacing(max(0, self._STAR_TO_INPUT_GAP - layout.spacing()))
         layout.addWidget(self.star_widget)
         layout.addLayout(button_row)
 
         self.submit_button.clicked.connect(self._submit)
         self.cancel_button.clicked.connect(self.reject)
+
+        _apply_content_based_height(self, self._WIDTH, self._MIN_HEIGHT, self._MAX_HEIGHT)
 
     def _submit(self) -> None:
         content = self.content_input.toPlainText()
@@ -365,6 +461,10 @@ class MissionRowWidget(QFrame):
 
 
 class MissionListDialog(QDialog):
+    _MIN_HEIGHT = 220
+    _MAX_HEIGHT = 640
+    _WIDTH = 460
+
     def __init__(self, license_code: str, on_credit_granted, parent=None) -> None:
         super().__init__(parent)
         self.license_code = license_code
@@ -373,7 +473,7 @@ class MissionListDialog(QDialog):
 
         self.setWindowTitle("크레딧 받기")
         self.setModal(True)
-        self.resize(460, 440)
+        self.resize(self._WIDTH, self._MIN_HEIGHT)
 
         self.info_label = QLabel("미션을 완료하면 크레딧을 받을 수 있어요.")
         self.info_label.setWordWrap(True)
@@ -407,6 +507,26 @@ class MissionListDialog(QDialog):
         self.close_button.clicked.connect(self.accept)
 
         self._load_missions()
+        self._apply_dynamic_height()
+
+    def _apply_dynamic_height(self) -> None:
+        """QScrollArea는 그 자체 sizeHint가 내용물(미션 행 개수)에 따라
+        커지지 않으므로(스크롤 영역이라 일부러 그렇게 설계됨), rows_container의
+        실제 sizeHint를 직접 더해서 팝업 높이를 계산한다."""
+        layout = self.layout()
+        layout.activate()
+        chrome_height = self.info_label.sizeHint().height() + self.close_button.sizeHint().height()
+        spacing_total = layout.spacing() * 2
+        margins = layout.contentsMargins()
+        content_height = (
+            self.rows_container.sizeHint().height()
+            + chrome_height
+            + spacing_total
+            + margins.top()
+            + margins.bottom()
+        )
+        target_height = max(self._MIN_HEIGHT, min(content_height, self._MAX_HEIGHT))
+        self.resize(self._WIDTH, target_height)
 
     def _clear_rows(self) -> None:
         while self.rows_layout.count() > 1:

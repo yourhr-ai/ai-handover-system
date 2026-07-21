@@ -28,7 +28,7 @@ def send_feedback_to_server(license_code: str, sender_name: str, message: str) -
 
     반환값은 다음 중 하나:
     - "received": 정상 접수됨
-    - "not_found": 서버에 존재하지 않는 라이선스 코드
+    - "not_found": 서버에 존재하지 않는 라이선스 키
     - "network_error": 서버 요청 자체가 실패함 (타임아웃/네트워크 오류/이상 응답)
     """
     payload = json.dumps(

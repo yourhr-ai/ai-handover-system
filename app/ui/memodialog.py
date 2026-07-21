@@ -393,7 +393,7 @@ class MemoDialog(QDialog):
         ai_mode_active = self.analysismode == "ai"
         restricted_mode_message = (
             "기본모드에서는 이메일·메신저 자료를 선택할 수 없습니다. "
-            "AI 모드에서 이용해 주세요."
+            "완성 모드에서 이용해 주세요."
         )
         for tab_index in (self._email_tab_index, self._kakao_tab_index):
             self.related_target_tabs.setTabEnabled(tab_index, ai_mode_active)
