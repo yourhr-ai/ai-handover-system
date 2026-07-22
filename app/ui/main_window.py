@@ -1099,7 +1099,11 @@ class PackageBannerWorker(QThread):
 
 
 class CreditBalanceWorker(QThread):
-    completed = Signal(str, object)
+    # balance drives the "얼마 안 남음" banner; report_precheck drives the
+    # "완성 모드 크레딧 부족" gate. They are separate because "부족"은 잔액이
+    # 0인지가 아니라 완성(report) 액션 예상 소요 크레딧보다 적은지로 판정해야
+    # 하기 때문이다(잔액>0이어도 report 비용보다 적으면 부족).
+    completed = Signal(str, object, object)
 
     def __init__(self, license_code: str, *, flush_pending: bool = False, parent=None) -> None:
         super().__init__(parent)
@@ -1113,7 +1117,13 @@ class CreditBalanceWorker(QThread):
             balance = check_balance(self.license_code)
         except Exception:
             balance = None
-        self.completed.emit(self.license_code, balance)
+        try:
+            # 완성 모드 저장(=report 액션)에 필요한 크레딧이 있는지 서버가 판정
+            # (allowed = usable && balance >= ESTIMATED_ACTION_COSTS.report).
+            report_precheck = precheck_action(self.license_code, "report")
+        except Exception:
+            report_precheck = None
+        self.completed.emit(self.license_code, balance, report_precheck)
 
 
 class CreditFinalizeWorker(QThread):
@@ -1490,13 +1500,12 @@ class MainWindow(QMainWindow):
             "10분 완성</span>"
         )
         self.brand_label = QLabel(
-            "<span style='font-size:10px; font-weight:bold; color:#1A1A1A;'>yourHR</span> "
             "<span style='font-size:10px; font-weight:bold; color:#7C3AED;'>대표님의 인사담당자</span>"
         )
         self.brand_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.brand_label.setMinimumWidth(1)
         self.copyright_label = QLabel(
-            "© 2026 yourHR 대표님의 인사담당자. All Rights Reserved."
+            "© 2026 대표님의 인사담당자. All Rights Reserved."
         )
         self.copyright_label.setObjectName("copyrightLabel")
         self.copyright_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1719,6 +1728,18 @@ class MainWindow(QMainWindow):
     def _select_analysis_mode(self, mode_key: str) -> None:
         if not self.license_activated:
             self._show_license_lock_warning()
+            return
+
+        # 크레딧이 이미 소진된 상태에서는 완성(ai) 모드를 아예 고르지 못하게 막고
+        # 즉시 안내한다. 선택은 바꾸지 않으므로(카드 표시는 selected_analysis_mode
+        # 기준) 기본 모드로 그대로 남고, 카드 스타일만 다시 그려 확실히 되돌린다.
+        if mode_key == "ai" and self._credit_insufficient:
+            QMessageBox.warning(
+                self,
+                "완성 모드",
+                "크레딧이 부족합니다.\n설명서 페이지의 [라이선스 키]에서 충전해주세요.",
+            )
+            self._update_mode_card_styles()
             return
 
         previous_mode = self.selected_analysis_mode
@@ -2304,10 +2325,19 @@ class MainWindow(QMainWindow):
         worker.finished.connect(worker.deleteLater)
         worker.start()
 
-    @Slot(str, object)
-    def _apply_credit_balance(self, license_code: str, balance: object) -> None:
+    @Slot(str, object, object)
+    def _apply_credit_balance(
+        self, license_code: str, balance: object, report_precheck: object = None
+    ) -> None:
         if license_code.strip() != (load_saved_license_code() or "").strip():
             return
+        # "완성 모드 크레딧 부족" 판정: 잔액<=0(단순 소진)이 아니라, 완성 저장
+        # (report 액션)에 필요한 예상 크레딧보다 잔액이 적은지로 판정한다. 서버
+        # precheck가 allowed=usable && balance>=report비용(예:120)을 계산해주므로
+        # 그 결과를 그대로 사용한다. precheck를 못 받은 경우(오프라인 등)는 잘못
+        # 막지 않도록 마지막 상태를 유지한다.
+        if isinstance(report_precheck, dict) and "allowed" in report_precheck:
+            self._credit_insufficient = not bool(report_precheck.get("allowed"))
         if not isinstance(balance, dict):
             # Unknown balance (e.g. offline): don't guess "부족" and wrongly block
             # a save the user might be able to make. Leave the last known state.
@@ -2315,9 +2345,6 @@ class MainWindow(QMainWindow):
             return
         remaining = int(balance.get("balance", 0) or 0)
         granted = int(balance.get("granted_total", 0) or 0)
-        # "부족" = credits are actually used up. low_balance (<=10%) is only a
-        # soft "running low" banner, so it must NOT gate the save button.
-        self._credit_insufficient = remaining <= 0
         if not balance.get("low_balance"):
             self.credit_balance_banner.hide()
             return
@@ -3925,7 +3952,20 @@ class MainWindow(QMainWindow):
         up front instead of failing minutes later. No server call."""
         return self._credit_insufficient and bool(self._pending_ai_memos())
 
-    def _save_word_from_dialog(self) -> bool:
+    def _build_basic_fallback_result(self) -> AnalysisResult:
+        """크레딧 부족으로 '기본 모드' 저장할 때 쓰는 임시 사본.
+
+        원본 result/메모는 전혀 건드리지 않고(작성한 인계 내용 그대로 유지),
+        analysismode="basic" + 각 메모의 이메일/메신저 연결만 비운 사본을 만들어
+        문서에 폴더 분석 기반 정리만 들어가게 한다(이메일/메신저 내용 제외)."""
+        result = self.current_analysis_result
+        basic_memos = [
+            replace(memo, linked_emails=[], linked_kakao_files=[])
+            for memo in result.memos
+        ]
+        return replace(result, analysismode="basic", memos=basic_memos)
+
+    def _save_word_from_dialog(self, basic_fallback: bool = False) -> bool:
         if (
             self.current_analysis_result is None
             or self.current_analysis_analyzed_at is None
@@ -3936,7 +3976,9 @@ class MainWindow(QMainWindow):
             return False
         if not self._handle_recent_activity_unlinked_folders():
             return False
-        if not self._confirm_ai_results_mode_mismatch():
+        # basic_fallback: 사용자가 "크레딧 부족 → 기본 모드로 저장"에 이미 동의한
+        # 경로. 완성 모드 AI 결과 불일치 확인은 건너뛴다(의도적으로 기본 모드 저장).
+        if not basic_fallback and not self._confirm_ai_results_mode_mismatch():
             return False
 
         output_path, _selected_filter = QFileDialog.getSaveFileName(
@@ -3951,16 +3993,22 @@ class MainWindow(QMainWindow):
         if Path(output_path).suffix.lower() != ".docx":
             output_path = f"{output_path}.docx"
 
-        if not self._refresh_ai_results_before_word_save(output_path, True):
-            return False
-        email_file_paths = self._get_selected_email_file_paths()
-        parsed_emails, _ = (
-            process_email_files(email_file_paths) if email_file_paths else ([], 0)
-        )
+        if basic_fallback:
+            # AI 실행/서버 요청 없이 즉시 기본 모드로 저장(이메일/메신저 제외).
+            save_result = self._build_basic_fallback_result()
+            parsed_emails: list[dict] = []
+        else:
+            if not self._refresh_ai_results_before_word_save(output_path, True):
+                return False
+            save_result = self.current_analysis_result
+            email_file_paths = self._get_selected_email_file_paths()
+            parsed_emails, _ = (
+                process_email_files(email_file_paths) if email_file_paths else ([], 0)
+            )
 
         try:
             save_analysis_result_as_word(
-                self.current_analysis_result,
+                save_result,
                 output_path,
                 self.current_analysis_analyzed_at,
                 parsed_emails,
@@ -4145,7 +4193,12 @@ class MainWindow(QMainWindow):
     @Slot(object)
     def _handle_report_ai_succeeded(self, license_code: str, balance: object) -> None:
         pending_save = self._finish_report_ai_worker()
+        # Update the banner from the just-fetched balance, then re-run the full
+        # balance+precheck refresh so _credit_insufficient reflects the credits
+        # left AFTER this report consumed some (the AI worker only returns a
+        # raw balance, not the report precheck).
         self._apply_credit_balance(license_code, balance)
+        self._refresh_credit_balance()
         if pending_save is not None:
             output_path, close_memo_dialog = pending_save
             if self._save_word_to_path(output_path) and close_memo_dialog:

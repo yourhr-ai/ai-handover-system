@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QTabWidget,
-    QToolTip,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -159,7 +158,7 @@ class MemoDialog(QDialog):
         parsed_emails: list[dict] | None = None,
         kakao_file_paths: list[str] | None = None,
         handover_qa: HandoverQA | None = None,
-        on_save_word: Callable[[], bool | None] | None = None,
+        on_save_word: Callable[..., bool | None] | None = None,
         is_save_credit_blocked: Callable[[], bool] | None = None,
         analysismode: str = "basic",
         parent: QWidget | None = None,
@@ -1059,11 +1058,19 @@ class MemoDialog(QDialog):
         if self.status_label.text() == "임시 저장됨":
             self.status_label.clear()
 
-    def _show_credit_insufficient_tooltip(self) -> None:
-        button = self.complete_button
-        # 버튼 바로 위에 말풍선을 띄운다(아래로 잘리는 걸 피해 위쪽 기준).
-        global_pos = button.mapToGlobal(button.rect().topLeft())
-        QToolTip.showText(global_pos, "크레딧이 부족합니다", button)
+    def _confirm_basic_fallback_save(self) -> bool:
+        """완성 모드로 작성했지만 저장 시점에 크레딧이 부족한 경우, 기본 모드로
+        저장할지 확인/취소를 받는다. [확인] True / [취소] False."""
+        reply = QMessageBox.warning(
+            self,
+            "인수인계서 저장",
+            "크레딧이 부족하여 기본 모드로 인수인계서가 만들어집니다.\n"
+            "연결하신 이메일/메신저 내용은 문서에서 제외되며, 폴더 분석 기반 정리만"
+            " 포함됩니다.\n\n계속 진행하시겠습니까?",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return reply == QMessageBox.StandardButton.Ok
 
     def _save_word_and_close(self) -> None:
         # [알려주세요]와 [인수인계서 저장] 통합: 메모/연결자료 조건만 먼저 확인하고
@@ -1072,11 +1079,14 @@ class MemoDialog(QDialog):
         # 눌러야만(=should_proceed_to_save) 답변 조건까지 포함한 최종 검사를 거쳐
         # 워드 문서를 생성한다. 팝업을 취소/닫기만 하면 답변은 보존된 채(자동저장)
         # 워드 생성 없이 메모 화면으로 돌아간다.
-        # 크레딧이 이미 소진된 상태면 서버 요청·AI 분석까지 가지 않고 즉시
-        # 버튼 위에 말풍선으로 안내한 뒤 중단한다(한참 뒤 실패 팝업 방지).
+        # 완성 모드로 작성했는데 저장 시점에 크레딧이 부족하면: 무조건 막지 않고
+        # 기본 모드로 저장할지 확인/취소를 받는다(이메일/메신저 제외 경고 포함).
+        # [취소]면 작성한 메모는 그대로 두고 아무 것도 진행하지 않는다.
+        basic_fallback = False
         if self.is_save_credit_blocked is not None and self.is_save_credit_blocked():
-            self._show_credit_insufficient_tooltip()
-            return
+            if not self._confirm_basic_fallback_save():
+                return
+            basic_fallback = True
 
         if not self._save_current_memo(show_success_message=False):
             return
@@ -1090,7 +1100,7 @@ class MemoDialog(QDialog):
         if not qa_dialog.should_proceed_to_save:
             return
 
-        self._finalize_word_save()
+        self._finalize_word_save(basic_fallback)
 
     def _validate_linked_requirement(self) -> bool:
         if any(
@@ -1108,12 +1118,12 @@ class MemoDialog(QDialog):
         )
         return False
 
-    def _finalize_word_save(self) -> None:
+    def _finalize_word_save(self, basic_fallback: bool = False) -> None:
         if not self._validate_save_requirements():
             return
         if self.on_save_word is not None:
             self._set_all_dialog_buttons_enabled(False)
-            success = self.on_save_word()
+            success = self.on_save_word(basic_fallback)
             if success is not None:
                 self._set_all_dialog_buttons_enabled(True)
             if success:

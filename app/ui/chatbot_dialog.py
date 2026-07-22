@@ -226,6 +226,10 @@ class PackageLoadWorker(QThread):
                         progress_callback=progress_callback,
                         cancel_check=cancel_check,
                     )
+            # 이번에 새로 선택한 폴더/링크에서 실제로 로드된 패키지 수. 기존
+            # 패키지와 합치기 전 값이라, 빈 폴더를 골랐는데 기존 패키지가 남아
+            # "성공"처럼 보이는 오탐을 막는 데 쓴다.
+            newly_loaded_count = len(packages)
             packages = [*self.existing_packages, *packages]
             merged = merge_and_deduplicate_chunks(
                 packages,
@@ -257,6 +261,7 @@ class PackageLoadWorker(QThread):
                 "packages": packages,
                 "chunks": chunks,
                 "search_index": search_index,
+                "newly_loaded_count": newly_loaded_count,
                 "selected_package_count": (
                     selected_package_count if self.source_kind == "folder" else 0
                 ),
@@ -609,12 +614,33 @@ class ChatbotDialog(QDialog):
         self.search_index = result["search_index"]
         self._selected_package_count = int(result.get("selected_package_count", 0))
         self._selected_package_bytes = int(result.get("selected_package_bytes", 0))
+        # 이번에 새로 선택한 폴더/링크에서 실제로 로드된 패키지 수(기존 패키지 제외).
+        newly_loaded_count = int(result.get("newly_loaded_count", len(self.packages)))
+
+        self.select_folder_button.setEnabled(True)
+        self.load_gdrive_button.setEnabled(True)
+
+        # 방금 고른 폴더/링크에서 유효한 zip 패키지를 하나도 못 찾은 경우:
+        # 기존에 로드된 패키지가 남아 "총 N개 로드"처럼 성공으로 보이는 오탐을
+        # 막고, 명확히 "패키지를 찾지 못했다"고 안내한다.
+        if newly_loaded_count == 0:
+            self._add_missing_package_notice()
+            if not self.packages:
+                # 기존에 로드된 패키지도 전혀 없음 - 질문 자체가 불가능.
+                self.question_requirement_label.show()
+                self.status_label.setText("읽을 수 있는 인수인계패키지가 없습니다.")
+                self.question_input.setEnabled(False)
+                self.send_button.setEnabled(False)
+            else:
+                # 이전에 불러온 패키지는 그대로 사용 가능 - 입력은 살려두되,
+                # 방금 선택한 폴더에는 패키지가 없었다는 사실만 분명히 알린다.
+                self.status_label.setText("선택하신 폴더에서 인수인계패키지를 찾지 못했습니다.")
+                self._refresh_question_availability()
+            return
 
         self.status_label.setText(
             f"총 {len(self.packages)}개 패키지 로드, {len(self.chunks)}개 청크 사용 가능"
         )
-        self.select_folder_button.setEnabled(True)
-        self.load_gdrive_button.setEnabled(True)
 
         if not self.packages:
             self.question_requirement_label.show()

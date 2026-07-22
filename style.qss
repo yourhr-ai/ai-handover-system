@@ -83,10 +83,17 @@ QPushButton#editMemoButton:disabled {
 
 /* 메인 화면 하단의 [인수인계패키지 생성]/[물어보기(챗봇)] 버튼 - 배경색/
    글자색 등은 위 보조 버튼(secondary) 스타일을 그대로 쓰고, 테두리만
-   [인수인계서 작성](#editMemoButton)과 정확히 동일한 값으로 맞춘다. */
+   [인수인계서 작성](#editMemoButton)과 정확히 동일한 값으로 맞춘다.
+   글자만 굵게(bold) 처리 - 크기/색상은 secondary 값 그대로. */
 QPushButton#createRagPackageButton,
 QPushButton#chatbotButton {
     border: 1.5px solid #C4B5FD; /* #editMemoButton과 동일한 옅은 보라색 테두리 */
+    /* Qt 스타일시트는 font-weight만 단독으로 지정하면(다른 규칙에서 font-size가
+       잡혀 있을 때) 굵기가 반영되지 않는 특성이 있어, secondary와 동일한
+       font-size(13px)를 함께 적어 폰트 전체를 이 규칙에서 확정시킨다.
+       크기는 그대로(13px), 굵기만 bold로 바뀐다. */
+    font-size: 13px; /* secondary와 동일한 값 - 크기 변경 아님 */
+    font-weight: bold; /* 글자 굵게 - bold는 굵게 표시 */
 }
 
 QPushButton#createRagPackageButton:hover,

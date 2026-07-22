@@ -14,6 +14,7 @@ class AnalysisModeSwitchTests(unittest.TestCase):
             license_activated=True,
             selected_analysis_mode=selected_mode,
             current_analysis_result=None,
+            _credit_insufficient=False,
             _show_license_lock_warning=MagicMock(),
             _get_selected_folder_paths=MagicMock(return_value=[]),
             _get_selected_email_file_paths=MagicMock(return_value=[]),
@@ -58,8 +59,29 @@ class AnalysisModeSwitchTests(unittest.TestCase):
             MainWindow._select_analysis_mode(window, "ai")
 
         question.assert_not_called()
+
+    def test_credit_insufficient_blocks_ai_selection_and_stays_basic(self):
+        window = self._mode_window("basic")
+        window._credit_insufficient = True
+        with patch.object(QMessageBox, "warning") as warning:
+            MainWindow._select_analysis_mode(window, "ai")
+
+        warning.assert_called_once()
+        self.assertEqual(window.selected_analysis_mode, "basic")
+        window._reset_for_analysis_mode_change.assert_not_called()
+        window._update_mode_card_styles.assert_called_once_with()
+
+    def test_credit_insufficient_still_allows_basic_selection(self):
+        window = self._mode_window("ai")
+        window._credit_insufficient = True
+        with patch.object(QMessageBox, "warning") as warning, patch.object(
+            QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes
+        ):
+            MainWindow._select_analysis_mode(window, "basic")
+
+        warning.assert_not_called()
+        self.assertEqual(window.selected_analysis_mode, "basic")
         window._reset_for_analysis_mode_change.assert_called_once_with()
-        self.assertEqual(window.selected_analysis_mode, "ai")
 
     def test_mode_warning_uses_new_exact_message(self):
         window = self._mode_window("basic")

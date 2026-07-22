@@ -1,68 +1,81 @@
 {
-  "analyzed_at": "2026-07-18T19:56:18",
-  "analysismode": "basic",
-  "root_folder_path": "C:/Users/조두형/Desktop/차량렌트",
+  "analyzed_at": "2026-07-22T12:46:41",
+  "analysismode": "ai",
+  "root_folder_path": "C:/Users/조두형/Desktop/인수인계 프로그램 출시",
   "root_summary": {
     "total_folder_count": 0,
-    "total_file_count": 3,
-    "total_size_bytes": 737607,
+    "total_file_count": 20,
+    "total_size_bytes": 31963412,
     "modified_within_7_days_count": 1,
-    "modified_within_30_days_count": 1,
-    "modified_within_90_days_count": 1
+    "modified_within_30_days_count": 20,
+    "modified_within_90_days_count": 20
   },
   "error_count": 0,
   "handover_qa": {
     "answers": [
-      "",
+      "11",
       "",
       "",
       "",
       ""
     ],
-    "updatedat": "2026-07-18T19:56:18"
+    "updatedat": "2026-07-22T12:46:51"
   },
   "memos": [
     {
-      "title": "테스트 인계 내용 제목",
-      "content": "테스트 인계 내용 상세 텍스트입니다.",
-      "createdat": "2026-07-18T19:57:23",
-      "updatedat": "2026-07-18T20:03:07",
+      "title": "11",
+      "content": "11",
+      "createdat": "2026-07-22T12:46:43",
+      "updatedat": "2026-07-22T12:46:49",
       "linked_folders": [
-        "차량렌트"
+        "인수인계 프로그램 출시"
       ],
       "linked_files": [],
       "linked_emails": [],
       "linked_kakao_files": [],
       "linked_folder_stats": [
         {
-          "relative_path": "차량렌트",
-          "source_1depth_relative_path": "차량렌트",
-          "file_count": 3,
-          "total_size_bytes": 737607,
+          "relative_path": "인수인계 프로그램 출시",
+          "source_1depth_relative_path": "인수인계 프로그램 출시",
+          "file_count": 20,
+          "total_size_bytes": 31963412,
           "extension_counts": {
-            ".pdf": 3
+            ".png": 17,
+            ".mp4": 1,
+            ".txt": 1,
+            ".zip": 1
           },
           "modified_within_7_days_count": 1,
-          "modified_within_30_days_count": 1,
-          "modified_within_90_days_count": 1
+          "modified_within_30_days_count": 20,
+          "modified_within_90_days_count": 20
         }
       ],
       "priorityfilesbytopfolder": {
-        "차량렌트": [
+        "인수인계 프로그램 출시": [
           {
-            "file_name": "계약사실증명원.pdf",
-            "relative_path": "차량렌트/계약사실증명원.pdf",
-            "modified_at": "2026-07-16 16:54:55"
+            "file_name": "사용자님 인수인계패키지_20260715_174623.zip",
+            "relative_path": "인수인계 프로그램 출시/사용자님 인수인계패키지_20260715_174623.zip",
+            "modified_at": "2026-07-15 17:47:01"
           },
           {
-            "file_name": "조두형 고객님 진행계약서.pdf",
-            "relative_path": "차량렌트/조두형 고객님 진행계약서.pdf",
-            "modified_at": "2026-03-13 15:26:32"
+            "file_name": "상세1.png",
+            "relative_path": "인수인계 프로그램 출시/상세1.png",
+            "modified_at": "2026-07-08 15:00:11"
           },
           {
-            "file_name": "국산전기차보조금특약확약서(렌트).pdf",
-            "relative_path": "차량렌트/국산전기차보조금특약확약서(렌트).pdf",
-            "modified_at": "2026-03-13 15:26:25"
+            "file_name": "인수인계 프로그램4.mp4",
+            "relative_path": "인수인계 프로그램 출시/인수인계 프로그램4.mp4",
+            "modified_at": "2026-07-08 14:36:08"
+          },
+          {
+            "file_name": "대문2.png",
+            "relative_path": "인수인계 프로그램 출시/대문2.png",
+            "modified_at": "2026-07-08 12:35:55"
+          },
+          {
+            "file_name": "대문1.png",
+            "relative_path": "인수인계 프로그램 출시/대문1.png",
+            "modified_at": "2026-07-08 12:35:45"
           }
         ]
       }
@@ -72,55 +85,114 @@
   "unlinkedfolders": [],
   "child_folders": [
     {
-      "folder_name": "차량렌트",
-      "relative_path": "차량렌트",
+      "folder_name": "인수인계 프로그램 출시",
+      "relative_path": "인수인계 프로그램 출시",
       "summary": {
         "total_folder_count": 0,
-        "total_file_count": 3,
-        "total_size_bytes": 737607,
-        "modified_within_30_days_count": 1
+        "total_file_count": 20,
+        "total_size_bytes": 31963412,
+        "modified_within_30_days_count": 20
       },
       "recent_modified_files": [
         {
-          "file_name": "계약사실증명원.pdf",
-          "relative_path": "차량렌트/계약사실증명원.pdf",
-          "modified_at": "2026-07-16 16:54:55"
+          "file_name": "사용자님 인수인계패키지_20260715_174623.zip",
+          "relative_path": "인수인계 프로그램 출시/사용자님 인수인계패키지_20260715_174623.zip",
+          "modified_at": "2026-07-15 17:47:01"
         },
         {
-          "file_name": "조두형 고객님 진행계약서.pdf",
-          "relative_path": "차량렌트/조두형 고객님 진행계약서.pdf",
-          "modified_at": "2026-03-13 15:26:32"
+          "file_name": "상세1.png",
+          "relative_path": "인수인계 프로그램 출시/상세1.png",
+          "modified_at": "2026-07-08 15:00:11"
         },
         {
-          "file_name": "국산전기차보조금특약확약서(렌트).pdf",
-          "relative_path": "차량렌트/국산전기차보조금특약확약서(렌트).pdf",
-          "modified_at": "2026-03-13 15:26:25"
+          "file_name": "인수인계 프로그램4.mp4",
+          "relative_path": "인수인계 프로그램 출시/인수인계 프로그램4.mp4",
+          "modified_at": "2026-07-08 14:36:08"
+        },
+        {
+          "file_name": "대문2.png",
+          "relative_path": "인수인계 프로그램 출시/대문2.png",
+          "modified_at": "2026-07-08 12:35:55"
+        },
+        {
+          "file_name": "대문1.png",
+          "relative_path": "인수인계 프로그램 출시/대문1.png",
+          "modified_at": "2026-07-08 12:35:45"
+        },
+        {
+          "file_name": "후임자용 챗봇_1.png",
+          "relative_path": "인수인계 프로그램 출시/후임자용 챗봇_1.png",
+          "modified_at": "2026-07-08 12:26:21"
+        },
+        {
+          "file_name": "상세5.png",
+          "relative_path": "인수인계 프로그램 출시/상세5.png",
+          "modified_at": "2026-07-08 11:34:20"
+        },
+        {
+          "file_name": "상세4.png",
+          "relative_path": "인수인계 프로그램 출시/상세4.png",
+          "modified_at": "2026-07-08 11:33:57"
+        },
+        {
+          "file_name": "상세3.png",
+          "relative_path": "인수인계 프로그램 출시/상세3.png",
+          "modified_at": "2026-07-08 11:33:28"
+        },
+        {
+          "file_name": "상세2.png",
+          "relative_path": "인수인계 프로그램 출시/상세2.png",
+          "modified_at": "2026-07-08 11:32:51"
         }
       ],
       "extension_stats": [
         {
-          "extension": ".pdf",
-          "file_count": 3
+          "extension": ".png",
+          "file_count": 17
+        },
+        {
+          "extension": ".mp4",
+          "file_count": 1
+        },
+        {
+          "extension": ".txt",
+          "file_count": 1
+        },
+        {
+          "extension": ".zip",
+          "file_count": 1
         }
       ],
       "priority_review_file_candidates": [
         {
-          "file_name": "계약사실증명원.pdf",
-          "relative_path": "차량렌트/계약사실증명원.pdf",
-          "modified_at": "2026-07-16 16:54:55",
-          "size_bytes": 512791
+          "file_name": "사용자님 인수인계패키지_20260715_174623.zip",
+          "relative_path": "인수인계 프로그램 출시/사용자님 인수인계패키지_20260715_174623.zip",
+          "modified_at": "2026-07-15 17:47:01",
+          "size_bytes": 6265845
         },
         {
-          "file_name": "조두형 고객님 진행계약서.pdf",
-          "relative_path": "차량렌트/조두형 고객님 진행계약서.pdf",
-          "modified_at": "2026-03-13 15:26:32",
-          "size_bytes": 119996
+          "file_name": "상세1.png",
+          "relative_path": "인수인계 프로그램 출시/상세1.png",
+          "modified_at": "2026-07-08 15:00:11",
+          "size_bytes": 1393343
         },
         {
-          "file_name": "국산전기차보조금특약확약서(렌트).pdf",
-          "relative_path": "차량렌트/국산전기차보조금특약확약서(렌트).pdf",
-          "modified_at": "2026-03-13 15:26:25",
-          "size_bytes": 104820
+          "file_name": "인수인계 프로그램4.mp4",
+          "relative_path": "인수인계 프로그램 출시/인수인계 프로그램4.mp4",
+          "modified_at": "2026-07-08 14:36:08",
+          "size_bytes": 8298438
+        },
+        {
+          "file_name": "대문2.png",
+          "relative_path": "인수인계 프로그램 출시/대문2.png",
+          "modified_at": "2026-07-08 12:35:55",
+          "size_bytes": 1607975
+        },
+        {
+          "file_name": "대문1.png",
+          "relative_path": "인수인계 프로그램 출시/대문1.png",
+          "modified_at": "2026-07-08 12:35:45",
+          "size_bytes": 1617562
         }
       ]
     }

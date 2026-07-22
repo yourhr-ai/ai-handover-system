@@ -109,12 +109,15 @@ class MainWindowCreditWorkerTests(unittest.TestCase):
 
     def test_report_flow_no_longer_precheck_or_consumes_locally(self):
         # /api/handover/ai/chat now reserves/finalizes credits server-side for
-        # the "report" action, so the exe must not duplicate that with its own
-        # precheck/consume calls.
+        # the "report" action, so the report-generation worker must not
+        # duplicate that with its own precheck/consume calls. (A separate
+        # read-only balance/sufficiency precheck poll in CreditBalanceWorker,
+        # used to gate 완성 모드, is intended and allowed.)
         from pathlib import Path
         source = (Path(__file__).parents[1] / "app/ui/main_window.py").read_text(encoding="utf-8")
-        self.assertNotIn('precheck_action(self.license_code, "report")', source)
-        self.assertNotIn("consume_credits(", source.split("class ReportAiWorker", 1)[1].split("class AnalysisWorker", 1)[0])
+        report_worker_src = source.split("class ReportAiWorker", 1)[1].split("class AnalysisWorker", 1)[0]
+        self.assertNotIn("precheck_action(", report_worker_src)
+        self.assertNotIn("consume_credits(", report_worker_src)
 
     def test_startup_flush_and_balance_do_not_block_ui_event_loop(self):
         calls: list[str] = []
@@ -124,6 +127,7 @@ class MainWindowCreditWorkerTests(unittest.TestCase):
                 side_effect=lambda: (calls.append("flush"), time.sleep(0.15))[0],
             ),
             patch("app.ui.main_window.check_balance", side_effect=lambda *_: calls.append("balance") or {}),
+            patch("app.ui.main_window.precheck_action", side_effect=lambda *_: None),
         ):
             _run_responsiveness_check(
                 CreditBalanceWorker("license", flush_pending=True)
@@ -133,11 +137,13 @@ class MainWindowCreditWorkerTests(unittest.TestCase):
     def test_balance_worker_emits_the_queried_license_code(self):
         received = []
         worker = CreditBalanceWorker("license-new")
-        worker.completed.connect(lambda license_code, balance: received.append((license_code, balance)))
+        worker.completed.connect(
+            lambda license_code, balance, report_precheck=None: received.append((license_code, balance))
+        )
         with patch(
             "app.ui.main_window.check_balance",
             side_effect=lambda *_: (time.sleep(0.05), {"low_balance": False})[1],
-        ):
+        ), patch("app.ui.main_window.precheck_action", side_effect=lambda *_: None):
             _run_responsiveness_check(worker)
         self.assertEqual(received, [("license-new", {"low_balance": False})])
 

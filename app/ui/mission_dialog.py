@@ -103,7 +103,16 @@ class StarRatingWidget(QWidget):
     ratingChanged = Signal(int)
 
     _STAR_COUNT = 5
+    # 별 사이의 "실제 화면(edge-to-edge)" 간격 px. 이전 구현은 이 값을 슬롯
+    # 계산에만 썼고, 위젯이 가로로 늘어나면 슬롯(=늘어난폭/5)이 커지는데 별은
+    # 높이로 크기가 고정돼 슬롯 안 빈 공간이 그대로 간격이 됐다(실측 51px).
+    # 그래서 아래 기하 계산은 늘어난 위젯 폭과 무관하게 별 폭+간격으로 직접
+    # 배치하고 그룹을 가운데 정렬한다.
     _STAR_GAP = 10
+    # 별 바깥 반지름. 이전(높이 42로 캡되어 실측 outer_radius≈18.9, 별 폭≈35px)
+    # 대비 80%로 축소: 18.9 * 0.8 = 15.12 (원래 대비로는 70%*80%=56%).
+    _STAR_OUTER_RADIUS = 15.12
+    _STAR_INNER_RATIO = 0.5
     _FILLED_COLOR = QColor("#F59E0B")
     _EMPTY_OUTLINE_COLOR = QColor("#D1D5DB")
 
@@ -112,30 +121,43 @@ class StarRatingWidget(QWidget):
         self._rating = 0
         self._hover_index = -1
         self.setMouseTracking(True)
-        # 2배로 키웠던 크기(높이 60/최소폭 300)가 과도해서 그 대비 70% 수준으로
-        # 축소한다(높이 60 -> 42, 최소폭 300 -> 210 ≈ 별 지름 약 34px * 5 + 간격 10px * 4).
-        self.setFixedHeight(42)
-        self.setMinimumWidth(210)
+        self.setFixedHeight(38)
+        # 그룹(별5 + 간격4)의 실제 가로폭 이상으로만 최소폭을 잡는다. 위젯이 더
+        # 넓어져도 _group_left()가 그룹을 가운데로 배치하므로 좌우 여백은 대칭.
+        self.setMinimumWidth(int(self._content_width()) + 4)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def rating(self) -> int:
         return self._rating
 
-    def _slot_width(self) -> float:
-        available = self.width() - self._STAR_GAP * (self._STAR_COUNT - 1)
-        return available / self._STAR_COUNT if self._STAR_COUNT else 0
+    def _inner_radius(self) -> float:
+        return self._STAR_OUTER_RADIUS * self._STAR_INNER_RATIO
+
+    def _star_width(self) -> float:
+        """실제로 그려지는 별 1개의 가로폭(경로 boundingRect 기준 정확값)."""
+        path = _build_star_path(QPointF(0.0, 0.0), self._STAR_OUTER_RADIUS, self._inner_radius())
+        return path.boundingRect().width()
+
+    def _content_width(self) -> float:
+        """별 5개 + 간격 4개의 전체 그룹 가로폭."""
+        return self._STAR_COUNT * self._star_width() + (self._STAR_COUNT - 1) * self._STAR_GAP
+
+    def _group_left(self) -> float:
+        """그룹을 위젯 안에서 가운데 정렬했을 때 그룹 왼쪽 x."""
+        return (self.width() - self._content_width()) / 2.0
 
     def _star_center_x(self, index: int) -> float:
-        slot_width = self._slot_width()
-        return index * (slot_width + self._STAR_GAP) + slot_width / 2
+        star_w = self._star_width()
+        return self._group_left() + star_w / 2.0 + index * (star_w + self._STAR_GAP)
 
     def _index_at(self, x: float) -> int:
-        slot_width = self._slot_width()
-        if slot_width <= 0:
+        star_w = self._star_width()
+        step = star_w + self._STAR_GAP
+        if step <= 0:
             return 0
-        step = slot_width + self._STAR_GAP
-        index = int(x // step)
-        return max(0, min(self._STAR_COUNT - 1, index))
+        first_center = self._group_left() + star_w / 2.0
+        index = round((x - first_center) / step)
+        return max(0, min(self._STAR_COUNT - 1, int(index)))
 
     def mouseMoveEvent(self, event) -> None:
         self._hover_index = self._index_at(event.position().x())
@@ -154,9 +176,8 @@ class StarRatingWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         filled_count = (self._hover_index + 1) if self._hover_index >= 0 else self._rating
-        slot_width = self._slot_width()
-        outer_radius = min(slot_width, self.height()) / 2 * 0.9
-        inner_radius = outer_radius * 0.5
+        outer_radius = self._STAR_OUTER_RADIUS
+        inner_radius = self._inner_radius()
         center_y = self.height() / 2
         for i in range(self._STAR_COUNT):
             center = QPointF(self._star_center_x(i), center_y)
