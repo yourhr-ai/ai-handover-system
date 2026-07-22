@@ -34,7 +34,6 @@ from app.license_credits import (
 from app.services.ai_proxy_client import InsufficientCreditsError
 from app.services.package_loader import (
     PackageLoadCancelled,
-    load_package_from_zip,
     load_packages_from_folder,
     load_packages_from_gdrive_link,
     merge_and_deduplicate_chunks,
@@ -181,36 +180,6 @@ class ChatFeedbackWorker(QThread):
             return
 
 
-class PackageSourceDialog(QFileDialog):
-    """File dialog that lets the user pick either a folder or a single .zip
-    file in one interaction.
-
-    QFileDialog's FileMode enum forces a single kind of target (folder-only,
-    file-only, ...) and its built-in accept() rejects a selection that
-    doesn't match that mode. There's no built-in "folder or file" mode, so
-    this subclass sets FileMode.Directory (which lets the dialog navigate
-    into folders while a .zip filter still highlights zip files) and
-    bypasses QFileDialog's own mode-validation in accept() so whatever the
-    user actually has selected - folder or zip - is accepted as-is. The
-    caller distinguishes the two afterward with Path.is_dir()/is_file().
-
-    Must run as a non-native (Qt-drawn) dialog for this override to take
-    effect at all - native OS dialogs don't go through this Python class.
-    """
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent, "패키지 폴더 또는 zip 파일 선택")
-        self.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-        self.setFileMode(QFileDialog.FileMode.Directory)
-        self.setOption(QFileDialog.Option.ShowDirsOnly, False)
-        self.setNameFilter("인수인계패키지 (*.zip)")
-
-    def accept(self) -> None:
-        # Skip QFileDialog.accept()'s mode-vs-selection check entirely so a
-        # selected .zip file is accepted even though FileMode is Directory.
-        QDialog.accept(self)
-
-
 class PackageLoadWorker(QThread):
     # object avoids QVariantMap conversion of tens of thousands of chunk dicts.
     succeeded = Signal(object)
@@ -241,16 +210,6 @@ class PackageLoadWorker(QThread):
                 packages = load_packages_from_gdrive_link(str(self.source))
                 if cancel_check():
                     raise PackageLoadCancelled()
-            elif self.source_kind == "zip":
-                zip_path = Path(self.source)
-                package = load_package_from_zip(
-                    zip_path,
-                    progress_callback=progress_callback,
-                    cancel_check=cancel_check,
-                )
-                packages = [package] if package is not None else []
-                selected_package_count = len(packages)
-                selected_package_bytes = ChatbotDialog._safe_file_size(zip_path)
             else:
                 folder = Path(self.source)
                 selected_package_count, selected_package_bytes = (
@@ -299,10 +258,10 @@ class PackageLoadWorker(QThread):
                 "chunks": chunks,
                 "search_index": search_index,
                 "selected_package_count": (
-                    selected_package_count if self.source_kind in ("folder", "zip") else 0
+                    selected_package_count if self.source_kind == "folder" else 0
                 ),
                 "selected_package_bytes": (
-                    selected_package_bytes if self.source_kind in ("folder", "zip") else 0
+                    selected_package_bytes if self.source_kind == "folder" else 0
                 ),
             }
         )
@@ -537,33 +496,14 @@ class ChatbotDialog(QDialog):
         if self.package_load_worker is not None:
             return
 
-        dialog = PackageSourceDialog(self)
-        if not dialog.exec():
-            return
-        selected_paths = dialog.selectedFiles()
-        if not selected_paths:
-            return
-        path = Path(selected_paths[0])
-
-        if path.is_dir():
-            self._start_package_load(path, "folder", "패키지를 불러오는 중입니다...")
-            return
-
-        if path.is_file():
-            if path.suffix.lower() != ".zip":
-                QMessageBox.warning(
-                    self,
-                    "패키지 선택",
-                    "올바른 인수인계패키지 파일이 아닙니다. .zip 파일을 선택해주세요.",
-                )
-                return
-            self._start_package_load(path, "zip", "패키지를 불러오는 중입니다...")
-            return
-
-        QMessageBox.warning(
+        selected_path = QFileDialog.getExistingDirectory(
             self,
-            "패키지 선택",
-            "선택한 경로를 찾을 수 없습니다. 다시 선택해주세요.",
+            "패키지 폴더 선택",
+        )
+        if not selected_path:
+            return
+        self._start_package_load(
+            Path(selected_path), "folder", "패키지를 불러오는 중입니다..."
         )
 
     def _load_package_from_gdrive_link(self) -> None:

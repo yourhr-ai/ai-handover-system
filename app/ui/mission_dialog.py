@@ -112,9 +112,10 @@ class StarRatingWidget(QWidget):
         self._rating = 0
         self._hover_index = -1
         self.setMouseTracking(True)
-        # 기존 대비 2배 크기(높이 30 -> 60, 최소폭 150 -> 300 ≈ 별 지름 48px * 5 + 간격 10px * 4).
-        self.setFixedHeight(60)
-        self.setMinimumWidth(300)
+        # 2배로 키웠던 크기(높이 60/최소폭 300)가 과도해서 그 대비 70% 수준으로
+        # 축소한다(높이 60 -> 42, 최소폭 300 -> 210 ≈ 별 지름 약 34px * 5 + 간격 10px * 4).
+        self.setFixedHeight(42)
+        self.setMinimumWidth(210)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def rating(self) -> int:
@@ -266,6 +267,8 @@ class MissionReviewDialog(QDialog):
     _MAX_HEIGHT = 620
     _WIDTH = 440
     _STAR_TO_INPUT_GAP = 20
+    _SUBMIT_LABEL = "제출"
+    _SUBMITTING_LABEL = "후기 등록 및 크레딧 지급 중입니다"
 
     def __init__(self, license_code: str, product_id: str, mission: dict, parent=None) -> None:
         super().__init__(parent)
@@ -274,6 +277,7 @@ class MissionReviewDialog(QDialog):
         self.mission = mission
         self.setWindowTitle(mission.get("missionName") or "후기 작성")
         self.setModal(True)
+        self._submitting = False
 
         notice = QLabel(
             (mission.get("missionContent") or "실제 사용 경험을 20자 이상 자유롭게 남겨주세요.")
@@ -289,7 +293,7 @@ class MissionReviewDialog(QDialog):
         self.star_widget = StarRatingWidget()
         self.star_widget.setAccessibleName("별점 선택")
 
-        self.submit_button = QPushButton("제출")
+        self.submit_button = QPushButton(self._SUBMIT_LABEL)
         self.cancel_button = QPushButton("취소")
 
         button_row = QHBoxLayout()
@@ -313,6 +317,9 @@ class MissionReviewDialog(QDialog):
         _apply_content_based_height(self, self._WIDTH, self._MIN_HEIGHT, self._MAX_HEIGHT)
 
     def _submit(self) -> None:
+        if self._submitting:
+            return
+
         content = self.content_input.toPlainText()
         rating = self.star_widget.rating()
         if rating < 1:
@@ -328,7 +335,17 @@ class MissionReviewDialog(QDialog):
             QMessageBox.warning(self, "후기 작성", "상품 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.")
             return
 
-        result = submit_review_mission(self.license_code, self.product_id, content, rating)
+        self._submitting = True
+        self.submit_button.setText(self._SUBMITTING_LABEL)
+        self.submit_button.setEnabled(False)
+        QApplication.processEvents()
+        try:
+            result = submit_review_mission(self.license_code, self.product_id, content, rating)
+        finally:
+            self.submit_button.setText(self._SUBMIT_LABEL)
+            self.submit_button.setEnabled(True)
+            self._submitting = False
+
         if result is None:
             QMessageBox.warning(self, "후기 작성", "서버 연결에 실패했습니다. 인터넷 연결을 확인해주세요.")
             return

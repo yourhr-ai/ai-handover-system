@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QTabWidget,
+    QToolTip,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -159,6 +160,7 @@ class MemoDialog(QDialog):
         kakao_file_paths: list[str] | None = None,
         handover_qa: HandoverQA | None = None,
         on_save_word: Callable[[], bool | None] | None = None,
+        is_save_credit_blocked: Callable[[], bool] | None = None,
         analysismode: str = "basic",
         parent: QWidget | None = None,
     ) -> None:
@@ -176,6 +178,7 @@ class MemoDialog(QDialog):
         self.kakao_file_paths = kakao_file_paths or []
         self.handover_qa = handover_qa or HandoverQA()
         self.on_save_word = on_save_word
+        self.is_save_credit_blocked = is_save_credit_blocked
         self.analysismode = analysismode
         self.current_memo_index = -1
         self.is_loading = False
@@ -1056,6 +1059,12 @@ class MemoDialog(QDialog):
         if self.status_label.text() == "임시 저장됨":
             self.status_label.clear()
 
+    def _show_credit_insufficient_tooltip(self) -> None:
+        button = self.complete_button
+        # 버튼 바로 위에 말풍선을 띄운다(아래로 잘리는 걸 피해 위쪽 기준).
+        global_pos = button.mapToGlobal(button.rect().topLeft())
+        QToolTip.showText(global_pos, "크레딧이 부족합니다", button)
+
     def _save_word_and_close(self) -> None:
         # [알려주세요]와 [인수인계서 저장] 통합: 메모/연결자료 조건만 먼저 확인하고
         # (아직 한 번도 답변을 안 한 최초 실행도 통과해야 팝업이 뜬다), 통과하면
@@ -1063,6 +1072,12 @@ class MemoDialog(QDialog):
         # 눌러야만(=should_proceed_to_save) 답변 조건까지 포함한 최종 검사를 거쳐
         # 워드 문서를 생성한다. 팝업을 취소/닫기만 하면 답변은 보존된 채(자동저장)
         # 워드 생성 없이 메모 화면으로 돌아간다.
+        # 크레딧이 이미 소진된 상태면 서버 요청·AI 분석까지 가지 않고 즉시
+        # 버튼 위에 말풍선으로 안내한 뒤 중단한다(한참 뒤 실패 팝업 방지).
+        if self.is_save_credit_blocked is not None and self.is_save_credit_blocked():
+            self._show_credit_insufficient_tooltip()
+            return
+
         if not self._save_current_memo(show_success_message=False):
             return
         if not self._validate_completion():

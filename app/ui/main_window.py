@@ -512,10 +512,21 @@ class FileContentExtensionDialog(QDialog):
         self._quota_worker = None
         remaining_gb = None
         if isinstance(result, dict):
-            try:
-                remaining_gb = max(0.0, float(result["configuredFreeQuotaGb"]))
-            except (KeyError, TypeError, ValueError):
-                remaining_gb = None
+            # remainingGb is this license's *actual* remaining quota
+            # (free-remaining + purchased-remaining), computed server-side the
+            # same way the order/payment flow decides `allowed`. The older
+            # configuredFreeQuotaGb field is only the product's configured free
+            # allowance (a static default like 5GB) and must NOT be shown as the
+            # remaining amount - it made the popup claim "5.00GB 가능" even when a
+            # license had almost none left. Fall back to it only when talking to
+            # a server old enough not to send remainingGb yet.
+            for key in ("remainingGb", "configuredFreeQuotaGb"):
+                if key in result:
+                    try:
+                        remaining_gb = max(0.0, float(result[key]))
+                    except (TypeError, ValueError):
+                        remaining_gb = None
+                    break
         if remaining_gb is None:
             self._quota_state = "failed"
             self._remaining_gb = None
@@ -1467,6 +1478,10 @@ class MainWindow(QMainWindow):
         self._report_ai_progress_box: QMessageBox | None = None
         self._pending_word_save: tuple[str, bool] | None = None
         self._credit_refresh_timer: QTimer | None = None
+        # Last known "credits are used up" state, refreshed from the balance
+        # worker (no per-click server call). Used to block 인수인계서 저장 early
+        # instead of letting it run the AI worker and fail minutes later.
+        self._credit_insufficient = False
 
         self.app_title_label = QLabel(
             '<span style="font-size:22px; font-weight:bold; color:#1A1A1A;">'
@@ -2294,13 +2309,18 @@ class MainWindow(QMainWindow):
         if license_code.strip() != (load_saved_license_code() or "").strip():
             return
         if not isinstance(balance, dict):
-            self.credit_balance_banner.hide()
-            return
-        if not balance.get("low_balance"):
+            # Unknown balance (e.g. offline): don't guess "부족" and wrongly block
+            # a save the user might be able to make. Leave the last known state.
             self.credit_balance_banner.hide()
             return
         remaining = int(balance.get("balance", 0) or 0)
         granted = int(balance.get("granted_total", 0) or 0)
+        # "부족" = credits are actually used up. low_balance (<=10%) is only a
+        # soft "running low" banner, so it must NOT gate the save button.
+        self._credit_insufficient = remaining <= 0
+        if not balance.get("low_balance"):
+            self.credit_balance_banner.hide()
+            return
         percent = round((remaining / granted) * 100) if granted > 0 else 0
         self.credit_balance_banner.setText(
             f"⚠ 사용량이 얼마 남지 않았습니다 (잔여 {percent}%). 설명서 페이지에서 충전하세요."
@@ -3792,6 +3812,7 @@ class MainWindow(QMainWindow):
             kakao_file_paths=self._get_selected_kakao_file_paths(),
             handover_qa=self.current_analysis_result.handover_qa,
             on_save_word=self._save_word_from_dialog,
+            is_save_credit_blocked=self.is_word_save_credit_blocked,
             analysismode=self.current_analysis_result.analysismode,
             parent=self,
         )
@@ -3882,6 +3903,27 @@ class MainWindow(QMainWindow):
     def _sanitize_package_name_part(self, value: str) -> str:
         sanitized = re.sub(r'[<>:"/\\|?*]+', "_", value).strip()
         return sanitized or "사용자"
+
+    def _pending_ai_memos(self) -> list:
+        """Memos whose AI 현황/할일 result is missing or stale and would need a
+        (credit-charged) AI run before 인수인계서 저장 in 완성(ai) mode.
+        Mirrors the pending-memo selection in _refresh_ai_results_before_word_save."""
+        result = self.current_analysis_result
+        if result is None or result.analysismode != "ai" or not self.license_activated:
+            return []
+        return [
+            memo
+            for memo in result.memos
+            if memo.ai_result is None
+            or memo.ai_result_content_hash != compute_memo_content_hash(memo)
+            or not all(k in memo.ai_result for k in _REQUIRED_AI_KEYS)
+        ]
+
+    def is_word_save_credit_blocked(self) -> bool:
+        """True when 인수인계서 저장 would run the AI worker (완성 모드, pending
+        memos) but we already know credits are used up - so it should be blocked
+        up front instead of failing minutes later. No server call."""
+        return self._credit_insufficient and bool(self._pending_ai_memos())
 
     def _save_word_from_dialog(self) -> bool:
         if (
